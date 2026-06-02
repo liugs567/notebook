@@ -14,6 +14,7 @@ export interface BlogIndexArticle {
   path: string
   createTime: number
   updateTime: number
+  tags?: string[]
 }
 
 export interface ArticleDetail extends BlogIndexArticle {
@@ -36,6 +37,7 @@ export interface SavePayload {
   saveMode: 'auto' | 'manual'
   createTime?: number
   updateTime?: number
+  tags?: string[]
 }
 
 export function fetchList(params: {
@@ -44,8 +46,13 @@ export function fetchList(params: {
   status?: string
   keyword?: string
   source?: string
+  tag?: string
 }) {
   return http.get<{ code: number; data: ListResult }>('/list', { params })
+}
+
+export function fetchTags() {
+  return http.get<{ code: number; data: string[] }>('/tags')
 }
 
 export function fetchDetail(id: string) {

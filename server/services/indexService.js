@@ -33,7 +33,54 @@ export function createEmptyIndex() {
     version: 1,
     updatedAt: Date.now(),
     articles: [],
+    tags: [],
   }
+}
+
+/** @param {unknown[]} [tags] @param {string} [legacyCategory] */
+export function normalizeTags(tags, legacyCategory) {
+  const result = Array.isArray(tags)
+    ? tags.map((t) => String(t).trim()).filter(Boolean)
+    : []
+  const legacy = (legacyCategory || '').trim()
+  if (legacy && !result.includes(legacy)) {
+    result.push(legacy)
+  }
+  return result
+}
+
+/** @param {import('../types.js').BlogIndex} index */
+export function ensureTags(index) {
+  if (Array.isArray(index.categories) && !index.tags) {
+    index.tags = index.categories
+    delete index.categories
+  }
+  if (!Array.isArray(index.tags)) {
+    index.tags = []
+  }
+}
+
+/** @param {import('../types.js').BlogIndex} index @param {string} tag */
+export function addTagIfNew(index, tag) {
+  const name = (tag || '').trim()
+  if (!name) return
+  ensureTags(index)
+  if (!index.tags.includes(name)) {
+    index.tags.push(name)
+    index.tags.sort((a, b) => a.localeCompare(b, 'zh-CN'))
+  }
+}
+
+/** @param {import('../types.js').BlogIndex} index */
+export function collectTags(index) {
+  ensureTags(index)
+  const set = new Set(index.tags)
+  for (const article of index.articles) {
+    for (const tag of normalizeTags(article.tags, article.category)) {
+      set.add(tag)
+    }
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'))
 }
 
 /** @param {import('../types.js').BlogIndex} index */
@@ -95,6 +142,7 @@ async function readMetaFromDir(articleDir, source, zoneName) {
       path: relPath,
       createTime: meta.createTime ?? Date.now(),
       updateTime: meta.updateTime ?? Date.now(),
+      tags: normalizeTags(meta.tags, meta.category),
     }
   } catch {
     return null
@@ -140,6 +188,12 @@ export async function rebuildIndex() {
     version: 1,
     updatedAt: Date.now(),
     articles: [...byId.values()].sort((a, b) => b.updateTime - a.updateTime),
+    tags: [],
+  }
+  for (const article of index.articles) {
+    for (const tag of article.tags || []) {
+      addTagIfNew(index, tag)
+    }
   }
   await writeIndex(index)
   return index

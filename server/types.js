@@ -25,6 +25,7 @@
  * @property {string} path
  * @property {number} createTime
  * @property {number} updateTime
+ * @property {string[]} [tags]
  */
 
 /**
@@ -32,6 +33,7 @@
  * @property {number} version
  * @property {number} updatedAt
  * @property {BlogIndexArticle[]} articles
+ * @property {string[]} [tags]
  */
 
 /**
@@ -42,6 +44,7 @@
  * @property {string} folderName
  * @property {number} createTime
  * @property {number} updateTime
+ * @property {string[]} [tags]
  */
 
 export {}

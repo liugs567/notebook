@@ -22,6 +22,7 @@ import {
   fetchList,
   deleteArticle,
   importArticles,
+  fetchTags,
   type BlogIndexArticle,
   type ImportResultItem,
   type ImportMode,
@@ -39,6 +40,8 @@ const size = ref(10)
 const loading = ref(false)
 const keyword = ref('')
 const statusFilter = ref('')
+const tagFilter = ref('')
+const allTags = ref<string[]>([])
 
 // --- 批量导入 ---
 type ImportKind = 'md' | 'folder'
@@ -321,6 +324,7 @@ async function startImport() {
 
     if (data.successCount > 0) {
       message.success(res.data.message)
+      await loadTags()
       await loadList()
     } else if (data.failedCount > 0) {
       message.error(res.data.message)
@@ -362,6 +366,7 @@ function resultStatusLabel(status: string) {
 
 const columns: TableColumnsType<BlogIndexArticle> = [
   { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
+  { title: '分类', key: 'tags', width: 200 },
   { title: '来源', key: 'source', width: 120 },
   { title: '状态', key: 'status', width: 110 },
   { title: '创建时间', key: 'createTime', width: 170 },
@@ -378,6 +383,15 @@ const pagination = computed(() => ({
   showTotal: (t: number) => `共 ${t} 篇`,
 }))
 
+async function loadTags() {
+  try {
+    const res = await fetchTags()
+    allTags.value = res.data.data
+  } catch {
+    allTags.value = []
+  }
+}
+
 async function loadList() {
   loading.value = true
   try {
@@ -386,6 +400,7 @@ async function loadList() {
       size: size.value,
       keyword: keyword.value || undefined,
       status: statusFilter.value || undefined,
+      tag: tagFilter.value || undefined,
     })
     const data = res.data.data
     items.value = data.items
@@ -405,6 +420,19 @@ function onSearch() {
 function onReset() {
   keyword.value = ''
   statusFilter.value = ''
+  tagFilter.value = ''
+  page.value = 1
+  loadList()
+}
+
+function selectTag(name: string) {
+  tagFilter.value = tagFilter.value === name ? '' : name
+  page.value = 1
+  loadList()
+}
+
+function clearTagFilter() {
+  tagFilter.value = ''
   page.value = 1
   loadList()
 }
@@ -453,7 +481,10 @@ function statusBadgeStatus(item: BlogIndexArticle) {
   return item.status === 'published' ? 'success' : 'default'
 }
 
-onMounted(loadList)
+onMounted(async () => {
+  await loadTags()
+  await loadList()
+})
 </script>
 
 <template>
@@ -630,6 +661,26 @@ onMounted(loadList)
         />
       </div>
 
+      <div v-if="allTags.length > 0" class="category-section">
+        <span class="category-section-label">分类：</span>
+        <a-space wrap :size="8">
+          <a-checkable-tag
+            :checked="!tagFilter"
+            @change="clearTagFilter"
+          >
+            全部
+          </a-checkable-tag>
+          <a-checkable-tag
+            v-for="tag in allTags"
+            :key="tag"
+            :checked="tagFilter === tag"
+            @change="() => selectTag(tag)"
+          >
+            {{ tag }}
+          </a-checkable-tag>
+        </a-space>
+      </div>
+
       <a-table
         class="article-table"
         :columns="columns"
@@ -657,6 +708,15 @@ onMounted(loadList)
               </a>
               <a-tag v-if="record.source === 'temp'" color="orange" :bordered="false" class="inline-tag">临时</a-tag>
             </div>
+          </template>
+
+          <template v-else-if="column.key === 'tags'">
+            <a-space v-if="record.tags?.length" wrap :size="4">
+              <a-tag v-for="tag in record.tags" :key="tag" color="blue" :bordered="false">
+                {{ tag }}
+              </a-tag>
+            </a-space>
+            <span v-else class="empty-text">—</span>
           </template>
 
           <template v-else-if="column.key === 'source'">
@@ -797,8 +857,26 @@ onMounted(loadList)
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   padding-bottom: 4px;
+}
+
+.category-section {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.category-section-label {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 22px;
+}
+
+.empty-text {
+  color: #cbd5e1;
 }
 
 /* 表格内元素美化 */

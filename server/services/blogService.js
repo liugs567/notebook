@@ -16,6 +16,9 @@ import {
   removeTempById,
   rebuildIndex,
   blogRoot,
+  addTagIfNew,
+  collectTags,
+  normalizeTags,
 } from './indexService.js'
 import { resolveContentAssetUrls } from '../utils/contentAssets.js'
 
@@ -102,6 +105,7 @@ export async function getArticleDetail(id) {
 
   return {
     ...meta,
+    tags: normalizeTags(meta.tags, meta.category),
     content: resolveContentAssetUrls(content, relPath),
     source: loc.source,
     path: relPath,
@@ -125,8 +129,13 @@ export async function listArticles(query = {}) {
   const status = query.status
   const keyword = (query.keyword || '').trim().toLowerCase()
   const source = query.source
+  const tag = (query.tag || query.category || '').trim()
 
   let list = [...index.articles]
+
+  if (tag) {
+    list = list.filter((a) => normalizeTags(a.tags, a.category).includes(tag))
+  }
 
   if (status === 'draft') {
     list = list.filter((a) => a.status === 'draft')
@@ -161,6 +170,11 @@ export async function listArticles(query = {}) {
   }
 }
 
+export async function getTags() {
+  const index = await readIndex()
+  return collectTags(index)
+}
+
 /**
  * @param {Object} body
  */
@@ -173,7 +187,10 @@ export async function saveArticle(body) {
     saveMode = 'manual',
     createTime: inputCreateTime,
     updateTime: inputUpdateTime,
+    tags: inputTags = [],
   } = body
+
+  const tags = normalizeTags(inputTags)
 
   const isAuto = saveMode === 'auto'
   const isManual = saveMode === 'manual'
@@ -244,6 +261,7 @@ export async function saveArticle(body) {
     folderName,
     createTime,
     updateTime,
+    tags,
   }
 
   await fs.writeFile(
@@ -272,7 +290,13 @@ export async function saveArticle(body) {
     path: relPath,
     createTime,
     updateTime,
+    tags,
   })
+  if (isManual) {
+    for (const t of tags) {
+      addTagIfNew(index, t)
+    }
+  }
   await writeIndex(index)
 
   return { ...meta, source, path: relPath }

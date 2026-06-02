@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MdPreview, MdCatalog } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
@@ -18,11 +18,19 @@ const updateTime = ref(0)
 const pageLoading = ref(false)
 const error = ref('')
 
+const catalogWidth = ref(220)
+const isResizing = ref(false)
+const MIN_CATALOG_WIDTH = 140
+const MAX_CATALOG_WIDTH = 520
+
+let resizeStartX = 0
+let resizeStartWidth = 0
+
 const previewId = computed(() => `blog-preview-${route.params.id}`)
 
 /** 整页滚动，供大纲高亮与跳转 */
 const scrollElement = ref<HTMLElement | string>(document.documentElement)
-const scrollOffsetTop = 72
+const scrollOffsetTop = 16
 
 const statusText = computed(() =>
   status.value === 'published' ? '已发布' : '未发布',
@@ -63,17 +71,70 @@ function goEdit() {
   router.push(`/blog/edit/${route.params.id}`)
 }
 
+function onResizeMove(e: MouseEvent) {
+  const delta = e.clientX - resizeStartX
+  catalogWidth.value = Math.min(
+    MAX_CATALOG_WIDTH,
+    Math.max(MIN_CATALOG_WIDTH, resizeStartWidth + delta),
+  )
+}
+
+function stopResize() {
+  isResizing.value = false
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', stopResize)
+}
+
+function startResize(e: MouseEvent) {
+  e.preventDefault()
+  isResizing.value = true
+  resizeStartX = e.clientX
+  resizeStartWidth = catalogWidth.value
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  document.addEventListener('mousemove', onResizeMove)
+  document.addEventListener('mouseup', stopResize)
+}
+
 onMounted(loadArticle)
+onUnmounted(stopResize)
 </script>
 
 <template>
   <div class="blog-view-page">
-    <header class="toolbar">
-      <button class="btn" @click="goBack">返回列表</button>
-      <div class="toolbar-actions">
-        <button class="btn btn-primary" @click="goEdit">编辑</button>
-      </div>
-    </header>
+    <nav class="fab-group" aria-label="文章操作">
+      <button class="fab-btn" type="button" title="返回列表" @click="goBack">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M19 12H5M12 19l-7-7 7-7"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+      <button
+        class="fab-btn fab-btn--primary"
+        type="button"
+        title="编辑"
+        @click="goEdit"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+    </nav>
 
     <div v-if="pageLoading" class="loading">加载中...</div>
 
@@ -89,8 +150,8 @@ onMounted(loadArticle)
         <span>更新于 {{ formatDateTime(updateTime) }}</span>
       </div>
 
-      <div class="article-body">
-        <aside class="catalog-aside">
+      <div class="article-body" :class="{ 'article-body--resizing': isResizing }">
+        <aside class="catalog-aside" :style="{ width: `${catalogWidth}px` }">
           <h2 class="catalog-label">大纲</h2>
           <MdCatalog
             :editor-id="previewId"
@@ -100,6 +161,12 @@ onMounted(loadArticle)
             class="view-catalog"
           />
         </aside>
+
+        <div
+          class="split-handle"
+          title="拖拽调整宽度"
+          @mousedown="startResize"
+        />
 
         <div class="preview-main">
           <MdPreview
@@ -116,28 +183,63 @@ onMounted(loadArticle)
 
 <style scoped>
 .blog-view-page {
-  /* max-width: 1100px; */
   margin: 0 auto;
-  padding: 0 16px 32px;
+  padding: 24px 16px 32px 16px;
   min-height: 100vh;
 }
 
-.toolbar {
+.fab-group {
+  position: fixed;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 0;
-  position: sticky;
-  top: 0;
-  background: #f8f9fa;
-  z-index: 10;
-  border-bottom: 1px solid #eee;
-  margin-bottom: 24px;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 20000;
 }
 
-.toolbar-actions {
+.fab-btn {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  color: #475569;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.1), 0 0 0 1px rgba(15, 23, 42, 0.04);
+  cursor: pointer;
   display: flex;
-  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s, box-shadow 0.2s, color 0.2s, background 0.2s;
+}
+
+.fab-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.fab-btn:hover {
+  transform: scale(1.06);
+  color: #1677ff;
+  box-shadow: 0 4px 16px rgba(22, 119, 255, 0.18), 0 0 0 1px rgba(22, 119, 255, 0.08);
+}
+
+.fab-btn:active {
+  transform: scale(0.98);
+}
+
+.fab-btn--primary {
+  background: #1677ff;
+  color: #fff;
+}
+
+.fab-btn--primary:hover {
+  background: #4096ff;
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(22, 119, 255, 0.35), 0 0 0 1px rgba(22, 119, 255, 0.1);
 }
 
 .article-title {
@@ -158,18 +260,89 @@ onMounted(loadArticle)
 
 .article-body {
   display: flex;
-  gap: 24px;
   align-items: flex-start;
 }
 
+.article-body--resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
 .catalog-aside {
-  width: 220px;
   flex-shrink: 0;
   position: sticky;
-  top: 72px;
-  max-height: calc(100vh - 88px);
+  top: 16px;
+  max-height: calc(100vh - 32px);
   overflow-y: auto;
-  padding: 12px 0;
+  padding: 12px 4px 12px 0;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.catalog-aside:hover {
+  scrollbar-color: rgba(148, 163, 184, 0.55) transparent;
+}
+
+.catalog-aside::-webkit-scrollbar {
+  width: 5px;
+}
+
+.catalog-aside::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+
+.catalog-aside::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  transition: background 0.2s;
+}
+
+.catalog-aside:hover::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+}
+
+.catalog-aside::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.75);
+}
+
+.catalog-aside::-webkit-scrollbar-thumb:active {
+  background: rgba(71, 85, 105, 0.85);
+}
+
+.split-handle {
+  flex-shrink: 0;
+  width: 8px;
+  align-self: stretch;
+  min-height: 120px;
+  margin: 0 8px;
+  cursor: col-resize;
+  position: relative;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.split-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: #e2e8f0;
+  border-radius: 1px;
+  transition: background 0.15s;
+}
+
+.split-handle:hover::after,
+.article-body--resizing .split-handle::after {
+  background: #1677ff;
+}
+
+.split-handle:hover,
+.article-body--resizing .split-handle {
+  background: rgba(22, 119, 255, 0.06);
 }
 
 .catalog-label {
@@ -202,16 +375,39 @@ onMounted(loadArticle)
 }
 
 @media (max-width: 768px) {
+  .blog-view-page {
+    padding-right: 16px;
+  }
+
+  .fab-group {
+    right: 12px;
+    gap: 10px;
+  }
+
+  .fab-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .fab-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
   .article-body {
     flex-direction: column;
   }
 
   .catalog-aside {
-    width: 100%;
+    width: 100% !important;
     position: static;
     max-height: none;
     padding: 0 0 8px;
     border-bottom: 1px solid #eee;
+  }
+
+  .split-handle {
+    display: none;
   }
 }
 

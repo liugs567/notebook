@@ -7,6 +7,7 @@ import {
   fetchDetail,
   saveArticle,
   uploadImage,
+  fetchTags,
 } from '../api/blog'
 import { formatDateTime } from '../utils/date'
 
@@ -16,6 +17,8 @@ const router = useRouter()
 const articleId = ref('')
 const title = ref('')
 const content = ref('')
+const tags = ref<string[]>([])
+const tagOptions = ref<string[]>([])
 const status = ref<'draft' | 'published'>('draft')
 const createTime = ref<number | undefined>()
 const pageLoading = ref(false)
@@ -48,7 +51,11 @@ const autoSaveHint = computed(() => {
 })
 
 function snapshot() {
-  return JSON.stringify({ title: title.value, content: content.value })
+  return JSON.stringify({
+    title: title.value,
+    content: content.value,
+    tags: tags.value,
+  })
 }
 
 function showToast(msg: string, type: 'success' | 'error' = 'success') {
@@ -85,6 +92,7 @@ async function doAutoSave() {
       saveMode: 'auto',
       createTime: createTime.value,
       updateTime: Date.now(),
+      tags: tags.value,
     })
     const data = res.data.data
     articleId.value = data.id
@@ -101,6 +109,15 @@ async function doAutoSave() {
   }
 }
 
+async function loadTags() {
+  try {
+    const res = await fetchTags()
+    tagOptions.value = res.data.data
+  } catch {
+    tagOptions.value = []
+  }
+}
+
 async function loadArticle() {
   const id = route.params.id as string
   if (!id) return
@@ -112,6 +129,7 @@ async function loadArticle() {
     articleId.value = data.id
     title.value = data.title
     content.value = data.content
+    tags.value = data.tags ? [...data.tags] : []
     status.value = data.status
     createTime.value = data.createTime
     lastSavedSnapshot = snapshot()
@@ -144,11 +162,13 @@ async function manualSave(publish: boolean) {
       saveMode: 'manual',
       createTime: createTime.value,
       updateTime: Date.now(),
+      tags: tags.value,
     })
     const data = res.data.data
     articleId.value = data.id
     createTime.value = data.createTime
     status.value = data.status
+    tags.value = data.tags ? [...data.tags] : []
     lastSavedSnapshot = snapshot()
     autoSaveStatus.value = 'idle'
 
@@ -157,6 +177,7 @@ async function manualSave(publish: boolean) {
     }
 
     showToast(res.data.message || (publish ? '发布成功' : '保存成功'))
+    await loadTags()
   } catch (err: unknown) {
     const msg =
       axiosMessage(err) || (publish ? '发布失败' : '保存失败')
@@ -223,6 +244,7 @@ watch(content, () => {
 onMounted(() => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
+  void loadTags()
   if (isEdit.value) {
     loadArticle()
   } else {
@@ -264,13 +286,21 @@ onUnmounted(() => {
     <div v-if="pageLoading" class="loading">加载中...</div>
 
     <template v-else>
-      <div class="title-row">
+      <div class="meta-row">
         <input
           v-model="title"
           type="text"
           class="title-input"
-          placeholder="请输入文章标题（必填，最多 60 字）"
+          placeholder="标题（必填，最多 60 字）"
           maxlength="60"
+        />
+        <a-select
+          v-model:value="tags"
+          mode="tags"
+          class="tags-select"
+          :options="tagOptions.map((t) => ({ value: t }))"
+          placeholder="分类，回车添加"
+          :token-separators="[',', '，']"
         />
       </div>
 
@@ -308,7 +338,7 @@ onUnmounted(() => {
           ]"
           :footers="['markdownTotal', '=', 'scrollSwitch']"
           preview-theme="cyanosis"
-          :style="{ height: 'calc(100vh - 200px)' }"
+          :style="{ height: '100%' }"
           placeholder="开始写作..."
           @on-change="onContentChange"
           @on-upload-img="onUploadImg"
@@ -340,7 +370,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
+  padding: 8px 16px;
   border-bottom: 1px solid #eee;
   flex-shrink: 0;
   flex-wrap: wrap;
@@ -356,31 +386,48 @@ onUnmounted(() => {
   gap: 8px;
 }
 
-.title-row {
-  padding: 12px 16px;
+.meta-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
   flex-shrink: 0;
 }
 
 .title-input {
-  width: 100%;
-  padding: 10px 14px;
-  font-size: 18px;
+  flex: 0 0 240px;
+  width: 240px;
+  max-width: 32%;
+  padding: 6px 10px;
+  font-size: 14px;
   border: 1px solid #ddd;
   border-radius: 6px;
   box-sizing: border-box;
 }
 
+.tags-select {
+  flex: 1;
+  min-width: 0;
+}
+
 .editor-wrap {
   flex: 1;
   min-height: 0;
-  padding: 0 16px;
+  padding: 0 16px 8px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-wrap :deep(.md-editor) {
+  flex: 1;
+  min-height: 0;
 }
 
 .autosave-footer {
-  padding: 8px 16px 12px;
+  padding: 4px 16px 8px;
   flex-shrink: 0;
-  font-size: 13px;
+  font-size: 12px;
   color: #666;
 }
 
@@ -409,5 +456,17 @@ onUnmounted(() => {
   padding: 48px;
   text-align: center;
   color: #888;
+}
+
+@media (max-width: 767px) {
+  .meta-row {
+    flex-wrap: wrap;
+  }
+
+  .title-input {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: none;
+  }
 }
 </style>

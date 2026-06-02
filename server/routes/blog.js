@@ -10,6 +10,7 @@ import {
   saveImage,
   readIndex,
   rebuildIndex,
+  getTags,
 } from '../services/blogService.js'
 import { importArticles } from '../services/importService.js'
 
@@ -30,6 +31,15 @@ const importUpload = multer({
     fileSize: config.importMaxImageSize,
     files: 500,
   },
+})
+
+router.get('/tags', async (_req, res) => {
+  try {
+    const data = await getTags()
+    res.json({ code: 0, data })
+  } catch (err) {
+    res.status(500).json({ code: 500, message: err.message })
+  }
 })
 
 router.get('/list', async (req, res) => {
