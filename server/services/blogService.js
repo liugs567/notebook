@@ -19,6 +19,7 @@ import {
   addTagIfNew,
   collectTags,
   normalizeTags,
+  ensureTags,
 } from './indexService.js'
 import { resolveContentAssetUrls } from '../utils/contentAssets.js'
 
@@ -173,6 +174,190 @@ export async function listArticles(query = {}) {
 export async function getTags() {
   const index = await readIndex()
   return collectTags(index)
+}
+
+/** @returns {Promise<{ name: string, count: number }[]>} */
+export async function getTagStats() {
+  const index = await readIndex()
+  const allTags = collectTags(index)
+  const counts = new Map(allTags.map((t) => [t, 0]))
+  for (const article of index.articles) {
+    for (const tag of normalizeTags(article.tags, article.category)) {
+      counts.set(tag, (counts.get(tag) || 0) + 1)
+    }
+  }
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+}
+
+/** @param {string} name */
+export async function createTag(name) {
+  const trimmed = (name || '').trim()
+  if (!trimmed) {
+    const err = new Error('分类名称不能为空')
+    err.statusCode = 400
+    throw err
+  }
+  const index = await readIndex()
+  if (collectTags(index).includes(trimmed)) {
+    const err = new Error('分类已存在')
+    err.statusCode = 400
+    throw err
+  }
+  addTagIfNew(index, trimmed)
+  await writeIndex(index)
+  return { name: trimmed }
+}
+
+/**
+ * @param {string} oldName
+ * @param {string} newName
+ */
+export async function renameTag(oldName, newName) {
+  const from = (oldName || '').trim()
+  const to = (newName || '').trim()
+  if (!from || !to) {
+    const err = new Error('分类名称不能为空')
+    err.statusCode = 400
+    throw err
+  }
+  if (from === to) return { name: to }
+  const index = await readIndex()
+  const allTags = collectTags(index)
+  if (!allTags.includes(from)) {
+    const err = new Error('原分类不存在')
+    err.statusCode = 404
+    throw err
+  }
+  if (allTags.includes(to)) {
+    const err = new Error('目标分类名称已存在')
+    err.statusCode = 400
+    throw err
+  }
+  ensureTags(index)
+  index.tags = index.tags.map((t) => (t === from ? to : t))
+  index.tags.sort((a, b) => a.localeCompare(b, 'zh-CN'))
+
+  let updated = 0
+  for (const article of index.articles) {
+    const tags = normalizeTags(article.tags, article.category)
+    if (!tags.includes(from)) continue
+    const nextTags = [...new Set(tags.map((t) => (t === from ? to : t)))]
+    await updateArticleTagsOnDisk(article.id, nextTags)
+    article.tags = nextTags
+    delete article.category
+    updated++
+  }
+  await writeIndex(index)
+  return { name: to, updated }
+}
+
+/** @param {string} name */
+export async function deleteTag(name) {
+  const trimmed = (name || '').trim()
+  if (!trimmed) {
+    const err = new Error('分类名称不能为空')
+    err.statusCode = 400
+    throw err
+  }
+  const index = await readIndex()
+  if (!collectTags(index).includes(trimmed)) {
+    const err = new Error('分类不存在')
+    err.statusCode = 404
+    throw err
+  }
+  ensureTags(index)
+  index.tags = index.tags.filter((t) => t !== trimmed)
+
+  let updated = 0
+  for (const article of index.articles) {
+    const tags = normalizeTags(article.tags, article.category)
+    if (!tags.includes(trimmed)) continue
+    const nextTags = tags.filter((t) => t !== trimmed)
+    await updateArticleTagsOnDisk(article.id, nextTags)
+    article.tags = nextTags
+    delete article.category
+    updated++
+  }
+  await writeIndex(index)
+  return { name: trimmed, updated }
+}
+
+/**
+ * @param {Object} params
+ * @param {string} params.tag
+ * @param {string[]} params.articleIds
+ * @param {'add'|'remove'|'set'} [params.mode]
+ */
+export async function assignArticlesToTag({ tag, articleIds, mode = 'add' }) {
+  const tagName = (tag || '').trim()
+  if (!tagName) {
+    const err = new Error('请指定分类')
+    err.statusCode = 400
+    throw err
+  }
+  if (!Array.isArray(articleIds) || articleIds.length === 0) {
+    const err = new Error('请选择文章')
+    err.statusCode = 400
+    throw err
+  }
+  if (!['add', 'remove', 'set'].includes(mode)) {
+    const err = new Error('无效的操作模式')
+    err.statusCode = 400
+    throw err
+  }
+
+  const index = await readIndex()
+  if (mode !== 'remove') {
+    addTagIfNew(index, tagName)
+  }
+
+  let updated = 0
+  const failed = []
+  for (const id of articleIds) {
+    const entry = index.articles.find((a) => a.id === id)
+    if (!entry) {
+      failed.push(id)
+      continue
+    }
+    const current = normalizeTags(entry.tags, entry.category)
+    let nextTags
+    if (mode === 'add') {
+      nextTags = current.includes(tagName)
+        ? current
+        : [...current, tagName]
+    } else if (mode === 'remove') {
+      nextTags = current.filter((t) => t !== tagName)
+    } else {
+      nextTags = [tagName]
+    }
+    if (JSON.stringify(current) === JSON.stringify(nextTags)) continue
+    const ok = await updateArticleTagsOnDisk(id, nextTags)
+    if (!ok) {
+      failed.push(id)
+      continue
+    }
+    entry.tags = nextTags
+    delete entry.category
+    entry.updateTime = Date.now()
+    updated++
+  }
+  await writeIndex(index)
+  return { tag: tagName, mode, updated, failed }
+}
+
+/** @param {string} id @param {string[]} tags */
+async function updateArticleTagsOnDisk(id, tags) {
+  const loc = await findArticleLocation(id)
+  if (!loc) return false
+  const metaPath = path.join(loc.dir, 'meta.json')
+  const meta = JSON.parse(await fs.readFile(metaPath, 'utf8'))
+  meta.tags = tags
+  meta.updateTime = Date.now()
+  delete meta.category
+  await fs.writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf8')
+  return true
 }
 
 /**

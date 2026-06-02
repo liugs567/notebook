@@ -11,6 +11,11 @@ import {
   readIndex,
   rebuildIndex,
   getTags,
+  getTagStats,
+  createTag,
+  renameTag,
+  deleteTag,
+  assignArticlesToTag,
 } from '../services/blogService.js'
 import { importArticles } from '../services/importService.js'
 
@@ -39,6 +44,59 @@ router.get('/tags', async (_req, res) => {
     res.json({ code: 0, data })
   } catch (err) {
     res.status(500).json({ code: 500, message: err.message })
+  }
+})
+
+router.get('/tags/stats', async (_req, res) => {
+  try {
+    const data = await getTagStats()
+    res.json({ code: 0, data })
+  } catch (err) {
+    res.status(500).json({ code: 500, message: err.message })
+  }
+})
+
+router.post('/tags', async (req, res) => {
+  try {
+    const data = await createTag(req.body?.name)
+    res.json({ code: 0, data, message: '分类创建成功' })
+  } catch (err) {
+    const status = err.statusCode || 500
+    res.status(status).json({ code: status, message: err.message })
+  }
+})
+
+router.put('/tags/:name', async (req, res) => {
+  try {
+    const data = await renameTag(req.params.name, req.body?.name)
+    res.json({ code: 0, data, message: '分类重命名成功' })
+  } catch (err) {
+    const status = err.statusCode || 500
+    res.status(status).json({ code: status, message: err.message })
+  }
+})
+
+router.delete('/tags/:name', async (req, res) => {
+  try {
+    const data = await deleteTag(req.params.name)
+    res.json({ code: 0, data, message: '分类删除成功' })
+  } catch (err) {
+    const status = err.statusCode || 500
+    res.status(status).json({ code: status, message: err.message })
+  }
+})
+
+router.post('/tags/assign', async (req, res) => {
+  try {
+    const data = await assignArticlesToTag(req.body || {})
+    res.json({
+      code: 0,
+      data,
+      message: `已更新 ${data.updated} 篇文章`,
+    })
+  } catch (err) {
+    const status = err.statusCode || 500
+    res.status(status).json({ code: status, message: err.message })
   }
 })
 

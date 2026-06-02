@@ -16,7 +16,7 @@ import {
   FileMarkdownOutlined,
   FolderOutlined,
   CloseOutlined,
-  ImportOutlined,
+  TagsOutlined,
 } from '@ant-design/icons-vue'
 import {
   fetchList,
@@ -366,11 +366,11 @@ function resultStatusLabel(status: string) {
 
 const columns: TableColumnsType<BlogIndexArticle> = [
   { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
-  { title: '分类', key: 'tags', width: 200 },
-  { title: '来源', key: 'source', width: 120 },
-  { title: '状态', key: 'status', width: 110 },
-  { title: '创建时间', key: 'createTime', width: 170 },
-  { title: '更新时间', key: 'updateTime', width: 170 },
+  { title: '分类', key: 'tags', width: 120 },
+  { title: '来源', key: 'source', width: 100 },
+  { title: '状态', key: 'status', width: 100 },
+  { title: '创建时间', key: 'createTime', width: 160 },
+  { title: '更新时间', key: 'updateTime', width: 160 },
   { title: '操作', key: 'action', width: 200, fixed: 'right' },
 ]
 
@@ -447,6 +447,10 @@ function goCreate() {
   router.push('/blog/create')
 }
 
+function goCategories() {
+  router.push('/blog/categories')
+}
+
 function goView(id: string) {
   router.push(`/blog/view/${id}`)
 }
@@ -494,10 +498,16 @@ onMounted(async () => {
         <h2 class="page-title">文章管理</h2>
         <p class="page-subtitle">管理和发布您的博客文章内容</p>
       </div>
-      <a-button type="primary" size="large" class="create-btn" @click="goCreate">
-        <template #icon><PlusOutlined /></template>
-        新建文章
-      </a-button>
+      <a-space :size="12">
+        <a-button size="large" @click="goCategories">
+          <template #icon><TagsOutlined /></template>
+          分类管理
+        </a-button>
+        <a-button type="primary" size="large" class="create-btn" @click="goCreate">
+          <template #icon><PlusOutlined /></template>
+          新建文章
+        </a-button>
+      </a-space>
     </div>
 
     <a-card :bordered="false" class="list-card">

@@ -55,6 +55,47 @@ export function fetchTags() {
   return http.get<{ code: number; data: string[] }>('/tags')
 }
 
+export interface TagStat {
+  name: string
+  count: number
+}
+
+export function fetchTagStats() {
+  return http.get<{ code: number; data: TagStat[] }>('/tags/stats')
+}
+
+export function createTag(name: string) {
+  return http.post<{ code: number; data: { name: string }; message: string }>(
+    '/tags',
+    { name },
+  )
+}
+
+export function renameTag(oldName: string, newName: string) {
+  return http.put<{ code: number; data: { name: string; updated: number }; message: string }>(
+    `/tags/${encodeURIComponent(oldName)}`,
+    { name: newName },
+  )
+}
+
+export function deleteTag(name: string) {
+  return http.delete<{ code: number; data: { name: string; updated: number }; message: string }>(
+    `/tags/${encodeURIComponent(name)}`,
+  )
+}
+
+export function assignArticlesToTag(payload: {
+  tag: string
+  articleIds: string[]
+  mode?: 'add' | 'remove' | 'set'
+}) {
+  return http.post<{
+    code: number
+    data: { tag: string; mode: string; updated: number; failed: string[] }
+    message: string
+  }>('/tags/assign', payload)
+}
+
 export function fetchDetail(id: string) {
   return http.get<{ code: number; data: ArticleDetail }>(`/detail/${id}`)
 }
