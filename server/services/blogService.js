@@ -169,6 +169,131 @@ export async function listArticles(query = {}) {
   }
 }
 
+const SEARCH_SNIPPET_BEFORE = 60
+const SEARCH_SNIPPET_AFTER = 60
+const SEARCH_MIN_KEYWORD_LEN = 2
+const SEARCH_DEFAULT_LIMIT = 50
+const SEARCH_MAX_LIMIT = 100
+
+/**
+ * @param {string} text
+ */
+function stripMarkdownForSnippet(text) {
+  return text
+    .replace(/```[\s\S]*?```/g, (block) =>
+      block.replace(/```\w*\n?/g, '').slice(0, 80),
+    )
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/[*_~>|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * @param {string} content
+ * @param {number} offset
+ * @param {number} keywordLen
+ */
+function extractSearchSnippet(content, offset, keywordLen) {
+  const start = Math.max(0, offset - SEARCH_SNIPPET_BEFORE)
+  const end = Math.min(content.length, offset + keywordLen + SEARCH_SNIPPET_AFTER)
+  let snippet = stripMarkdownForSnippet(content.slice(start, end))
+  if (start > 0) snippet = `…${snippet}`
+  if (end < content.length) snippet = `${snippet}…`
+  return snippet
+}
+
+/**
+ * @param {Object} query
+ */
+export async function searchArticlesContent(query = {}) {
+  const keyword = (query.q || query.keyword || '').trim()
+  const limit = Math.max(
+    1,
+    Math.min(
+      SEARCH_MAX_LIMIT,
+      parseInt(String(query.limit || SEARCH_DEFAULT_LIMIT), 10) || SEARCH_DEFAULT_LIMIT,
+    ),
+  )
+
+  if (keyword.length < SEARCH_MIN_KEYWORD_LEN) {
+    const err = new Error(`关键词至少 ${SEARCH_MIN_KEYWORD_LEN} 个字符`)
+    err.statusCode = 400
+    throw err
+  }
+
+  const keywordLower = keyword.toLowerCase()
+  let index
+  try {
+    index = await readIndex()
+    if (!index.articles) throw new Error('invalid')
+  } catch {
+    index = await rebuildIndex()
+  }
+
+  const root = await blogRoot()
+  const items = []
+  let totalMatches = 0
+  let truncated = false
+
+  for (const article of index.articles) {
+    if (!article.path) continue
+
+    let content = ''
+    try {
+      content = await fs.readFile(
+        path.join(root, article.path, 'content.md'),
+        'utf8',
+      )
+    } catch {
+      continue
+    }
+
+    const contentLower = content.toLowerCase()
+    let searchFrom = 0
+    let matchIndex = 0
+
+    while (searchFrom < content.length) {
+      const idx = contentLower.indexOf(keywordLower, searchFrom)
+      if (idx === -1) break
+
+      totalMatches += 1
+
+      if (items.length < limit) {
+        items.push({
+          id: article.id,
+          title: article.title || DEFAULT_TITLE,
+          snippet: extractSearchSnippet(content, idx, keyword.length),
+          matchIndex,
+          offset: idx,
+          updateTime: article.updateTime || 0,
+        })
+      } else {
+        truncated = true
+      }
+
+      matchIndex += 1
+      searchFrom = idx + keyword.length
+    }
+  }
+
+  if (totalMatches > items.length) {
+    truncated = true
+  }
+
+  return {
+    items,
+    total: totalMatches,
+    keyword,
+    truncated,
+  }
+}
+
 export async function getTags() {
   const index = await readIndex()
   return collectTags(index)

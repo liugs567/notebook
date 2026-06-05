@@ -51,6 +51,28 @@ export function fetchList(params: {
   return http.get<{ code: number; data: ListResult }>('/list', { params })
 }
 
+export interface ContentSearchItem {
+  id: string
+  title: string
+  snippet: string
+  matchIndex: number
+  offset: number
+  updateTime: number
+}
+
+export interface ContentSearchResult {
+  items: ContentSearchItem[]
+  total: number
+  keyword: string
+  truncated: boolean
+}
+
+export function searchContent(params: { q: string; limit?: number }) {
+  return http.get<{ code: number; data: ContentSearchResult }>('/search', {
+    params,
+  })
+}
+
 export function fetchTags() {
   return http.get<{ code: number; data: string[] }>('/tags')
 }

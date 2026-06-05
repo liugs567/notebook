@@ -77,7 +77,8 @@ onMounted(() => {
       </div>
 
       <div class="gate-card" :class="{ shake, success }">
-        <div class="card-glow" />
+        <div class="card-glass-edge" aria-hidden="true" />
+        <div class="card-glass-shine" aria-hidden="true" />
         <div class="card-inner">
           <div class="lock-icon">
             <LockOutlined />
@@ -222,24 +223,40 @@ onMounted(() => {
 }
 
 .logo-wrap {
+  position: relative;
   width: 80px;
   height: 80px;
   margin: 0 auto 20px;
   border-radius: 50%;
-  background: rgba(15, 23, 42, 0.6);
   padding: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow:
-    0 0 40px rgba(99, 102, 241, 0.35),
-    0 0 0 1px rgba(148, 163, 184, 0.15);
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04),
+    0 8px 32px rgba(0, 0, 0, 0.2);
   animation: logo-float 4s ease-in-out infinite;
+  overflow: hidden;
+}
+
+.logo-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(255, 255, 255, 0.2), transparent 60%);
+  pointer-events: none;
 }
 
 .brand-logo {
+  position: relative;
+  z-index: 1;
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
-  filter: invert(1) hue-rotate(180deg);
 }
 
 .brand-title {
@@ -277,7 +294,9 @@ onMounted(() => {
 .gate-card {
   position: relative;
   width: min(420px, 92vw);
-  border-radius: 20px;
+  border-radius: 24px;
+  overflow: hidden;
+  isolation: isolate;
   transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
@@ -286,25 +305,59 @@ onMounted(() => {
 }
 
 .gate-card.success {
-  box-shadow: 0 0 60px rgba(34, 197, 94, 0.3);
+  box-shadow:
+    0 0 0 1px rgba(34, 197, 94, 0.35),
+    0 12px 40px rgba(34, 197, 94, 0.18);
 }
 
-.card-glow {
+.card-glass-edge {
   position: absolute;
-  inset: -1px;
-  border-radius: 20px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.5), rgba(6, 182, 212, 0.3), rgba(139, 92, 246, 0.5));
-  opacity: 0.6;
-  filter: blur(1px);
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.08) 35%,
+    rgba(255, 255, 255, 0.04) 65%,
+    rgba(255, 255, 255, 0.28) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.card-glass-shine {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(255, 255, 255, 0.18), transparent 55%),
+    radial-gradient(ellipse 40% 30% at 100% 0%, rgba(99, 102, 241, 0.12), transparent 50%);
+  pointer-events: none;
+  z-index: 1;
 }
 
 .card-inner {
   position: relative;
+  z-index: 0;
   padding: 36px 32px 32px;
-  border-radius: 20px;
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04),
+    0 16px 48px rgba(0, 0, 0, 0.22);
 }
 
 .lock-icon {
@@ -315,8 +368,12 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   border-radius: 12px;
-  background: rgba(99, 102, 241, 0.15);
-  color: #818cf8;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  color: #a5b4fc;
   font-size: 22px;
 }
 
@@ -349,21 +406,27 @@ onMounted(() => {
   width: 100%;
   padding: 14px 16px;
   font-size: 15px;
-  color: #f1f5f9;
-  background: rgba(2, 6, 23, 0.6);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 12px;
   outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
 
 .gate-input::placeholder {
-  color: #475569;
+  color: rgba(148, 163, 184, 0.75);
 }
 
 .gate-input:focus {
-  border-color: rgba(99, 102, 241, 0.6);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 0 0 3px rgba(99, 102, 241, 0.18);
 }
 
 .gate-input:disabled {
@@ -386,17 +449,34 @@ onMounted(() => {
   font-size: 15px;
   font-weight: 600;
   color: #fff;
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  border: none;
+  background: linear-gradient(
+    135deg,
+    rgba(99, 102, 241, 0.55),
+    rgba(79, 70, 229, 0.45)
+  );
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 12px;
   cursor: pointer;
   overflow: hidden;
-  transition: transform 0.2s, box-shadow 0.2s, background 0.3s;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 8px 24px rgba(99, 102, 241, 0.25);
+  transition: transform 0.2s, box-shadow 0.2s, background 0.3s, border-color 0.2s;
 }
 
 .enter-btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4);
+  background: linear-gradient(
+    135deg,
+    rgba(99, 102, 241, 0.68),
+    rgba(79, 70, 229, 0.58)
+  );
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 12px 32px rgba(99, 102, 241, 0.35);
 }
 
 .enter-btn:disabled {
@@ -404,11 +484,21 @@ onMounted(() => {
 }
 
 .enter-btn.loading {
-  background: linear-gradient(135deg, #475569, #334155);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .enter-btn.success {
-  background: linear-gradient(135deg, #22c55e, #16a34a);
+  background: linear-gradient(
+    135deg,
+    rgba(34, 197, 94, 0.55),
+    rgba(22, 163, 74, 0.45)
+  );
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 8px 24px rgba(34, 197, 94, 0.25);
 }
 
 .btn-text {

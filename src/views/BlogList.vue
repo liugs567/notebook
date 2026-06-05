@@ -4,10 +4,11 @@ import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import type { TableColumnsType, TablePaginationConfig } from 'ant-design-vue'
 // 引入 Ant Design Icons
-import { 
-  PlusOutlined, 
-  SearchOutlined, 
-  ReloadOutlined, 
+import {
+  PlusOutlined,
+  SearchOutlined,
+  FileSearchOutlined,
+  ReloadOutlined,
   DeleteOutlined, 
   EditOutlined, 
   EyeOutlined,
@@ -32,8 +33,10 @@ import {
   getImportRelativePath,
 } from '../api/blog'
 import { formatDateTime } from '../utils/date'
+import { useContentSearch } from '../composables/useContentSearch'
 
 const router = useRouter()
+const { openSearch } = useContentSearch()
 
 const items = ref<BlogIndexArticle[]>([])
 const total = ref(0)
@@ -510,6 +513,10 @@ onMounted(async () => {
         <p class="page-subtitle">管理和发布您的博客文章内容</p>
       </div>
       <a-space :size="12">
+        <a-button size="large" @click="openSearch">
+          <template #icon><FileSearchOutlined /></template>
+          内容检索
+        </a-button>
         <a-button size="large" @click="goDiff">
           <template #icon><DiffOutlined /></template>
           文本对比

@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MdPreview, MdCatalog } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { fetchDetail } from '../api/blog'
 import { formatDateTime } from '../utils/date'
+import {
+  highlightSearchInElement,
+  clearSearchHighlights,
+} from '../utils/searchHighlight'
 
 const route = useRoute()
 const router = useRouter()
@@ -98,8 +102,54 @@ function startResize(e: MouseEvent) {
   document.addEventListener('mouseup', stopResize)
 }
 
+function getPreviewContainer(): HTMLElement | null {
+  const root = document.getElementById(previewId.value)
+  return root?.querySelector('.md-editor-preview') as HTMLElement | null
+}
+
+function applySearchHighlight() {
+  const container = getPreviewContainer()
+  if (!container) return
+
+  const q = (route.query.q as string | undefined)?.trim()
+  if (!q) {
+    clearSearchHighlights(container)
+    return
+  }
+
+  const matchIndex = parseInt(String(route.query.matchIndex ?? '0'), 10) || 0
+  highlightSearchInElement(container, q, matchIndex)
+}
+
+function scheduleSearchHighlight() {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      setTimeout(applySearchHighlight, 80)
+    })
+  })
+}
+
+watch(
+  () => [
+    route.params.id,
+    route.query.q,
+    route.query.matchIndex,
+    pageLoading.value,
+    content.value,
+  ] as const,
+  ([, , , loading]) => {
+    if (!loading) {
+      scheduleSearchHighlight()
+    }
+  },
+)
+
 onMounted(loadArticle)
-onUnmounted(stopResize)
+onUnmounted(() => {
+  stopResize()
+  const container = getPreviewContainer()
+  if (container) clearSearchHighlights(container)
+})
 </script>
 
 <template>
@@ -373,6 +423,33 @@ onUnmounted(stopResize)
 
 .preview-main :deep(.md-editor-preview) {
   padding: 0;
+}
+
+.preview-main :deep(mark.search-highlight) {
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: rgba(245, 158, 11, 0.72);
+  color: #451a03;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  scroll-margin-top: 80px;
+}
+
+.preview-main :deep(mark.search-highlight--active) {
+  background: rgba(217, 119, 6, 0.92);
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.45);
+  animation: search-highlight-pulse 1.5s ease-in-out 2;
+}
+
+@keyframes search-highlight-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(217, 119, 6, 0.22);
+  }
 }
 
 @media (max-width: 768px) {

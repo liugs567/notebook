@@ -4,6 +4,7 @@ import path from 'path'
 import config from '../config.js'
 import {
   listArticles,
+  searchArticlesContent,
   getArticleDetail,
   saveArticle,
   deleteArticle,
@@ -106,6 +107,16 @@ router.get('/list', async (req, res) => {
     res.json({ code: 0, data })
   } catch (err) {
     res.status(500).json({ code: 500, message: err.message })
+  }
+})
+
+router.get('/search', async (req, res) => {
+  try {
+    const data = await searchArticlesContent(req.query)
+    res.json({ code: 0, data })
+  } catch (err) {
+    const status = err.statusCode || 500
+    res.status(status).json({ code: status, message: err.message })
   }
 })
 
