@@ -10,7 +10,7 @@ export interface BlogIndexArticle {
   title: string
   folderName: string
   source: 'saved' | 'temp'
-  status: 'draft' | 'published'
+  status?: 'published'
   path: string
   createTime: number
   updateTime: number
@@ -33,7 +33,7 @@ export interface SavePayload {
   id?: string
   title: string
   content: string
-  status: 'draft' | 'published'
+  status?: 'published'
   saveMode: 'auto' | 'manual'
   createTime?: number
   updateTime?: number
@@ -156,7 +156,7 @@ export function importArticles(
   files: ImportFile[],
   options?: {
     mode?: ImportMode
-    status?: 'draft' | 'published'
+    status?: 'published'
     folderName?: string
   },
 ) {

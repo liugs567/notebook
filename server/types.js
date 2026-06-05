@@ -21,7 +21,7 @@
  * @property {string} title
  * @property {string} folderName
  * @property {'saved' | 'temp'} source
- * @property {'draft' | 'published'} status
+ * @property {'published'} [status]
  * @property {string} path
  * @property {number} createTime
  * @property {number} updateTime
@@ -40,7 +40,7 @@
  * @typedef {Object} ArticleMeta
  * @property {string} id
  * @property {string} title
- * @property {'draft' | 'published'} status
+ * @property {'published'} [status]
  * @property {string} folderName
  * @property {number} createTime
  * @property {number} updateTime

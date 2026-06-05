@@ -138,9 +138,7 @@ export async function listArticles(query = {}) {
     list = list.filter((a) => normalizeTags(a.tags, a.category).includes(tag))
   }
 
-  if (status === 'draft') {
-    list = list.filter((a) => a.status === 'draft')
-  } else if (status === 'published') {
+  if (status === 'published') {
     list = list.filter((a) => a.status === 'published')
   } else if (status === 'temp') {
     list = list.filter((a) => a.source === 'temp')
@@ -368,7 +366,7 @@ export async function saveArticle(body) {
     id: inputId,
     title: inputTitle,
     content = '',
-    status = 'draft',
+    status,
     saveMode = 'manual',
     createTime: inputCreateTime,
     updateTime: inputUpdateTime,
@@ -442,11 +440,13 @@ export async function saveArticle(body) {
   const meta = {
     id,
     title: displayTitle,
-    status: isAuto ? 'draft' : status,
     folderName,
     createTime,
     updateTime,
     tags,
+  }
+  if (!isAuto && status === 'published') {
+    meta.status = 'published'
   }
 
   await fs.writeFile(

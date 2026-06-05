@@ -177,10 +177,12 @@ async function createArticle(params) {
   const meta = {
     id,
     title,
-    status,
     folderName,
     createTime: now,
     updateTime: now,
+  }
+  if (status === 'published') {
+    meta.status = 'published'
   }
 
   await fs.mkdir(articleDir, { recursive: true })
@@ -470,7 +472,7 @@ export async function importArticles(files, options = {}) {
   }
 
   const mode = options.mode || 'md'
-  const status = options.status === 'published' ? 'published' : 'draft'
+  const status = options.status === 'published' ? 'published' : undefined
   const pathsFromClient = options.paths || []
   const folderNameHint = (options.folderName || '').trim()
   const totalSize = files.reduce((s, f) => s + (f.buffer?.length || 0), 0)

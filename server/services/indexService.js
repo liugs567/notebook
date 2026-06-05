@@ -138,7 +138,7 @@ async function readMetaFromDir(articleDir, source, zoneName) {
       title: meta.title ?? folderName,
       folderName: meta.folderName ?? folderName,
       source: source === 'saved' ? 'saved' : 'temp',
-      status: meta.status ?? 'draft',
+      status: meta.status === 'published' ? 'published' : undefined,
       path: relPath,
       createTime: meta.createTime ?? Date.now(),
       updateTime: meta.updateTime ?? Date.now(),

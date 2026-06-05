@@ -11,7 +11,7 @@ const router = useRouter()
 
 const title = ref('')
 const content = ref('')
-const status = ref<'draft' | 'published'>('draft')
+const status = ref<'published' | undefined>()
 const source = ref<'saved' | 'temp'>('saved')
 const createTime = ref(0)
 const updateTime = ref(0)
@@ -364,6 +364,7 @@ onUnmounted(stopResize)
 .preview-main {
   flex: 1;
   min-width: 0;
+  width: 100%;
   background: #fff;
   border-radius: 8px;
   border: 1px solid #eee;

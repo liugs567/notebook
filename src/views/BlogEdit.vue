@@ -19,12 +19,13 @@ const title = ref('')
 const content = ref('')
 const tags = ref<string[]>([])
 const tagOptions = ref<string[]>([])
-const status = ref<'draft' | 'published'>('draft')
+const isPublished = ref(false)
 const createTime = ref<number | undefined>()
 const pageLoading = ref(false)
 const savingDraft = ref(false)
 const publishing = ref(false)
 
+const autoSaveEnabled = ref(true)
 const autoSaveStatus = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const autoSaveTime = ref(0)
 const toast = ref('')
@@ -72,6 +73,7 @@ function updateDocumentTitle() {
 }
 
 function scheduleAutoSave() {
+  if (!autoSaveEnabled.value) return
   if (autoSaveTimer) clearTimeout(autoSaveTimer)
   autoSaveTimer = setTimeout(() => {
     void doAutoSave()
@@ -79,6 +81,7 @@ function scheduleAutoSave() {
 }
 
 async function doAutoSave() {
+  if (!autoSaveEnabled.value) return
   const current = snapshot()
   if (current === lastSavedSnapshot) return
 
@@ -88,7 +91,6 @@ async function doAutoSave() {
       id: articleId.value || undefined,
       title: title.value,
       content: content.value,
-      status: 'draft',
       saveMode: 'auto',
       createTime: createTime.value,
       updateTime: Date.now(),
@@ -130,7 +132,7 @@ async function loadArticle() {
     title.value = data.title
     content.value = data.content
     tags.value = data.tags ? [...data.tags] : []
-    status.value = data.status
+    isPublished.value = data.status === 'published'
     createTime.value = data.createTime
     lastSavedSnapshot = snapshot()
     updateDocumentTitle()
@@ -158,7 +160,7 @@ async function manualSave(publish: boolean) {
       id: articleId.value || undefined,
       title: title.value.trim(),
       content: content.value,
-      status: publish ? 'published' : 'draft',
+      ...(publish ? { status: 'published' as const } : {}),
       saveMode: 'manual',
       createTime: createTime.value,
       updateTime: Date.now(),
@@ -167,7 +169,7 @@ async function manualSave(publish: boolean) {
     const data = res.data.data
     articleId.value = data.id
     createTime.value = data.createTime
-    status.value = data.status
+    isPublished.value = data.status === 'published'
     tags.value = data.tags ? [...data.tags] : []
     lastSavedSnapshot = snapshot()
     autoSaveStatus.value = 'idle'
@@ -205,6 +207,10 @@ async function onUploadImg(
   callback: (urls: string[]) => void,
 ) {
   if (!articleId.value) {
+    if (!autoSaveEnabled.value) {
+      showToast('请先保存文章后再上传图片', 'error')
+      return
+    }
     await doAutoSave()
   }
   if (!articleId.value) {
@@ -241,6 +247,18 @@ watch(content, () => {
   scheduleAutoSave()
 })
 
+watch(autoSaveEnabled, (enabled) => {
+  if (!enabled) {
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer)
+      autoSaveTimer = null
+    }
+    autoSaveStatus.value = 'idle'
+    return
+  }
+  scheduleAutoSave()
+})
+
 onMounted(() => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
@@ -264,6 +282,9 @@ onUnmounted(() => {
       <button class="btn" @click="goBack">返回列表</button>
       <span class="page-label">{{ pageTitle }}</span>
       <div class="toolbar-actions">
+        <a-checkbox v-model:checked="autoSaveEnabled" class="autosave-checkbox">
+          自动保存
+        </a-checkbox>
         <button
           class="btn"
           :disabled="savingDraft || publishing || pageLoading"
@@ -347,7 +368,7 @@ onUnmounted(() => {
 
       <footer class="autosave-footer">
         <span
-          v-if="autoSaveHint"
+          v-if="autoSaveEnabled && autoSaveHint"
           class="autosave-hint"
           :class="{ error: autoSaveStatus === 'error' }"
         >
@@ -383,7 +404,13 @@ onUnmounted(() => {
 
 .toolbar-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+.autosave-checkbox {
+  font-size: 14px;
+  white-space: nowrap;
 }
 
 .meta-row {
@@ -425,6 +452,9 @@ onUnmounted(() => {
 }
 
 .autosave-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding: 4px 16px 8px;
   flex-shrink: 0;
   font-size: 12px;

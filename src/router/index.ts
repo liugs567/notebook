@@ -40,6 +40,18 @@ const router = createRouter({
       component: () => import('../views/BlogEdit.vue'),
       meta: { title: '编辑文章', requiresAuth: true },
     },
+    {
+      path: '/blog/diff',
+      name: 'BlogDiff',
+      component: () => import('../views/BlogDiff.vue'),
+      meta: { title: '文本对比', requiresAuth: true },
+    },
+    {
+      path: '/blog/diff',
+      name: 'BlogDiff',
+      component: () => import('../views/BlogDiff.vue'),
+      meta: { title: '文本对比', requiresAuth: true },
+    },
   ],
 })
 

@@ -17,6 +17,8 @@ import {
   FolderOutlined,
   CloseOutlined,
   TagsOutlined,
+  DiffOutlined,
+  ImportOutlined,
 } from '@ant-design/icons-vue'
 import {
   fetchList,
@@ -42,6 +44,7 @@ const keyword = ref('')
 const statusFilter = ref('')
 const tagFilter = ref('')
 const allTags = ref<string[]>([])
+const importVisible = ref(false)
 
 // --- 批量导入 ---
 type ImportKind = 'md' | 'folder'
@@ -365,7 +368,7 @@ function resultStatusLabel(status: string) {
 }
 
 const columns: TableColumnsType<BlogIndexArticle> = [
-  { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
+  { title: '标题', dataIndex: 'title', key: 'title' },
   { title: '分类', key: 'tags', width: 120 },
   { title: '来源', key: 'source', width: 100 },
   { title: '状态', key: 'status', width: 100 },
@@ -425,6 +428,10 @@ function onReset() {
   loadList()
 }
 
+function toggleImport() {
+  importVisible.value = !importVisible.value
+}
+
 function selectTag(name: string) {
   tagFilter.value = tagFilter.value === name ? '' : name
   page.value = 1
@@ -449,6 +456,10 @@ function goCreate() {
 
 function goCategories() {
   router.push('/blog/categories')
+}
+
+function goDiff() {
+  router.push('/blog/diff')
 }
 
 function goView(id: string) {
@@ -499,15 +510,154 @@ onMounted(async () => {
         <p class="page-subtitle">管理和发布您的博客文章内容</p>
       </div>
       <a-space :size="12">
+        <a-button size="large" @click="goDiff">
+          <template #icon><DiffOutlined /></template>
+          文本对比
+        </a-button>
         <a-button size="large" @click="goCategories">
           <template #icon><TagsOutlined /></template>
           分类管理
+        </a-button>
+        <a-button
+          type="primary"
+          size="large"
+          :ghost="!importVisible"
+          @click="toggleImport"
+        >
+          <template #icon><ImportOutlined /></template>
+          导入文章
         </a-button>
         <a-button type="primary" size="large" class="create-btn" @click="goCreate">
           <template #icon><PlusOutlined /></template>
           新建文章
         </a-button>
       </a-space>
+    </div>
+
+    <div v-show="importVisible" class="import-section">
+      <div class="import-section-header">
+        <span class="import-section-title">导入 Markdown</span>
+      </div>
+
+      <div class="import-mode-bar">
+        <a-radio-group
+          v-model:value="importKind"
+          :disabled="importing"
+          @change="onImportKindChange"
+        >
+          <a-radio-button value="md">上传 Markdown</a-radio-button>
+          <a-radio-button value="folder">上传文件夹</a-radio-button>
+        </a-radio-group>
+
+        <a-radio-group
+          v-if="importKind === 'folder'"
+          v-model:value="folderMode"
+          :disabled="importing"
+          class="import-folder-mode"
+          @change="onFolderModeChange"
+        >
+          <a-radio value="package">文章包（1 个 md + 图片）</a-radio>
+          <a-radio value="multi-md">多篇 Markdown</a-radio>
+        </a-radio-group>
+      </div>
+
+      <div
+        class="import-dropzone"
+        :class="{ 'import-dropzone--active': dragOver, 'import-dropzone--disabled': importing }"
+        @dragover="onDragOver"
+        @dragleave="onDragLeave"
+        @drop="onDrop"
+      >
+        <input
+          ref="fileInputRef"
+          type="file"
+          accept=".md,text/markdown"
+          multiple
+          hidden
+          @change="onFileInputChange"
+        />
+        <input
+          ref="folderInputRef"
+          type="file"
+          multiple
+          hidden
+          webkitdirectory
+          @change="onFolderInputChange"
+        />
+
+        <p class="import-dropzone-icon">
+          <InboxOutlined />
+        </p>
+        <p class="import-dropzone-text">
+          {{ importKind === 'md' ? '拖拽或选择 .md 文件' : '拖拽或选择一个文件夹' }}
+        </p>
+        <p class="import-dropzone-hint">{{ dropzoneHint }}</p>
+        <a-button size="small" :disabled="importing" @click="pickFiles">
+          <template #icon>
+            <FileMarkdownOutlined v-if="importKind === 'md'" />
+            <FolderOutlined v-else />
+          </template>
+          {{ importKind === 'md' ? '选择 .md 文件' : '选择文件夹' }}
+        </a-button>
+      </div>
+
+      <div v-if="importQueue.length > 0" class="import-queue">
+        <div class="import-queue-header">
+          <span>待导入队列（{{ importQueue.length }} 项）</span>
+          <a-space>
+            <a-button size="small" :disabled="importing" @click="clearQueue">清空</a-button>
+            <a-button
+              type="primary"
+              size="small"
+              :loading="importing"
+              :disabled="importQueue.length === 0"
+              @click="startImport"
+            >
+              <template #icon><ImportOutlined /></template>
+              开始导入
+            </a-button>
+          </a-space>
+        </div>
+        <a-list size="small" :data-source="importQueue" bordered>
+          <template #renderItem="{ item }">
+            <a-list-item>
+              <a-list-item-meta>
+                <template #avatar>
+                  <FolderOutlined v-if="item.type === 'folder'" style="font-size: 18px; color: #1677ff" />
+                  <FileMarkdownOutlined v-else style="font-size: 18px; color: #52c41a" />
+                </template>
+                <template #title>
+                  <span>{{ item.name }}</span>
+                  <a-tag :bordered="false" style="margin-left: 8px">
+                    {{ item.type === 'folder' ? '文件夹' : '文件' }}
+                  </a-tag>
+                </template>
+                <template #description>
+                  {{ item.fileCount }} 个文件 · {{ formatSize(item.size) }}
+                </template>
+              </a-list-item-meta>
+              <template #actions>
+                <a-button
+                  type="text"
+                  size="small"
+                  :disabled="importing"
+                  @click="removeQueueItem(item.key)"
+                >
+                  <CloseOutlined />
+                </a-button>
+              </template>
+            </a-list-item>
+          </template>
+        </a-list>
+      </div>
+
+      <a-progress
+        v-if="importing"
+        :percent="importProgress"
+        status="active"
+        :show-info="false"
+        style="margin-top: 12px"
+      />
     </div>
 
     <a-card :bordered="false" class="list-card">
@@ -525,15 +675,14 @@ onMounted(async () => {
           
           <a-select
             v-model:value="statusFilter"
-            placeholder="选择文章状态"
+            placeholder="筛选类型"
             allow-clear
             style="width: 180px"
             @change="onSearch"
           >
-            <a-select-option value="">全部状态</a-select-option>
-            <a-select-option value="draft">草稿</a-select-option>
+            <a-select-option value="">全部</a-select-option>
             <a-select-option value="published">已发布</a-select-option>
-            <a-select-option value="temp">仅临时草稿</a-select-option>
+            <a-select-option value="temp">临时草稿</a-select-option>
           </a-select>
 
           <a-button type="primary" ghost @click="onSearch">筛选</a-button>
@@ -543,132 +692,6 @@ onMounted(async () => {
         <a-button :loading="loading" shape="circle" @click="loadList" title="刷新数据">
           <template #icon><ReloadOutlined /></template>
         </a-button>
-      </div>
-
-      <div class="import-section">
-        <div class="import-section-header">
-          <span class="import-section-title">导入 Markdown</span>
-        </div>
-
-        <div class="import-mode-bar">
-          <a-radio-group
-            v-model:value="importKind"
-            :disabled="importing"
-            @change="onImportKindChange"
-          >
-            <a-radio-button value="md">上传 Markdown</a-radio-button>
-            <a-radio-button value="folder">上传文件夹</a-radio-button>
-          </a-radio-group>
-
-          <a-radio-group
-            v-if="importKind === 'folder'"
-            v-model:value="folderMode"
-            :disabled="importing"
-            class="import-folder-mode"
-            @change="onFolderModeChange"
-          >
-            <a-radio value="package">文章包（1 个 md + 图片）</a-radio>
-            <a-radio value="multi-md">多篇 Markdown</a-radio>
-          </a-radio-group>
-        </div>
-
-        <div
-          class="import-dropzone"
-          :class="{ 'import-dropzone--active': dragOver, 'import-dropzone--disabled': importing }"
-          @dragover="onDragOver"
-          @dragleave="onDragLeave"
-          @drop="onDrop"
-        >
-          <input
-            ref="fileInputRef"
-            type="file"
-            accept=".md,text/markdown"
-            multiple
-            hidden
-            @change="onFileInputChange"
-          />
-          <input
-            ref="folderInputRef"
-            type="file"
-            multiple
-            hidden
-            webkitdirectory
-            @change="onFolderInputChange"
-          />
-
-          <p class="import-dropzone-icon">
-            <InboxOutlined />
-          </p>
-          <p class="import-dropzone-text">
-            {{ importKind === 'md' ? '拖拽或选择 .md 文件' : '拖拽或选择一个文件夹' }}
-          </p>
-          <p class="import-dropzone-hint">{{ dropzoneHint }}</p>
-          <a-button size="small" :disabled="importing" @click="pickFiles">
-            <template #icon>
-              <FileMarkdownOutlined v-if="importKind === 'md'" />
-              <FolderOutlined v-else />
-            </template>
-            {{ importKind === 'md' ? '选择 .md 文件' : '选择文件夹' }}
-          </a-button>
-        </div>
-
-        <div v-if="importQueue.length > 0" class="import-queue">
-          <div class="import-queue-header">
-            <span>待导入队列（{{ importQueue.length }} 项）</span>
-            <a-space>
-              <a-button size="small" :disabled="importing" @click="clearQueue">清空</a-button>
-              <a-button
-                type="primary"
-                size="small"
-                :loading="importing"
-                :disabled="importQueue.length === 0"
-                @click="startImport"
-              >
-                <template #icon><ImportOutlined /></template>
-                开始导入
-              </a-button>
-            </a-space>
-          </div>
-          <a-list size="small" :data-source="importQueue" bordered>
-            <template #renderItem="{ item }">
-              <a-list-item>
-                <a-list-item-meta>
-                  <template #avatar>
-                    <FolderOutlined v-if="item.type === 'folder'" style="font-size: 18px; color: #1677ff" />
-                    <FileMarkdownOutlined v-else style="font-size: 18px; color: #52c41a" />
-                  </template>
-                  <template #title>
-                    <span>{{ item.name }}</span>
-                    <a-tag :bordered="false" style="margin-left: 8px">
-                      {{ item.type === 'folder' ? '文件夹' : '文件' }}
-                    </a-tag>
-                  </template>
-                  <template #description>
-                    {{ item.fileCount }} 个文件 · {{ formatSize(item.size) }}
-                  </template>
-                </a-list-item-meta>
-                <template #actions>
-                  <a-button
-                    type="text"
-                    size="small"
-                    :disabled="importing"
-                    @click="removeQueueItem(item.key)"
-                  >
-                    <CloseOutlined />
-                  </a-button>
-                </template>
-              </a-list-item>
-            </template>
-          </a-list>
-        </div>
-
-        <a-progress
-          v-if="importing"
-          :percent="importProgress"
-          status="active"
-          :show-info="false"
-          style="margin-top: 12px"
-        />
       </div>
 
       <div v-if="allTags.length > 0" class="category-section">
@@ -712,12 +735,9 @@ onMounted(async () => {
 
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'title'">
-            <div class="title-cell-wrapper">
-              <a class="article-title-link" @click="goView(record.id)">
-                {{ record.title }}
-              </a>
-              <a-tag v-if="record.source === 'temp'" color="orange" :bordered="false" class="inline-tag">临时</a-tag>
-            </div>
+            <a class="article-title-link" @click="goView(record.id)">
+              {{ record.title }}
+            </a>
           </template>
 
           <template v-else-if="column.key === 'tags'">
@@ -890,30 +910,17 @@ onMounted(async () => {
 }
 
 /* 表格内元素美化 */
-.title-cell-wrapper {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 100%;
-}
-
 .article-title-link {
   font-weight: 500;
   color: #1e293b;
   transition: color 0.2s;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-word;
+  white-space: normal;
+  line-height: 1.5;
 }
 
 .article-title-link:hover {
   color: #1677ff;
-}
-
-.inline-tag {
-  margin: 0;
-  padding: 0 6px;
-  font-size: 11px;
 }
 
 .time-text {
@@ -958,11 +965,13 @@ onMounted(async () => {
   color: #334155;
 }
 
-/* 导入区域 */
+/* 导入区域（独立于列表卡片） */
 .import-section {
   margin-bottom: 24px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid #f0f0f0;
+  padding: 24px;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.03);
 }
 
 .import-section-header {
