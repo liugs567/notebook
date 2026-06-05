@@ -68,7 +68,10 @@ const flatNavTargets = computed<FlatNavTarget[]>(() => {
 
   for (const group of resultGroups.value) {
     if (group.matches.length === 1) {
-      targets.push({ kind: 'match', group, match: group.matches[0] })
+      const match = group.matches[0]
+      if (match) {
+        targets.push({ kind: 'match', group, match })
+      }
       continue
     }
 
@@ -237,6 +240,26 @@ function snippetParts(snippet: string) {
   return splitHighlightParts(snippet, keyword.value.trim())
 }
 
+function soleMatch(group: SearchResultGroup): ContentSearchItem | null {
+  if (group.matches.length !== 1) return null
+  return group.matches[0] ?? null
+}
+
+function navIndexForSoleMatch(group: SearchResultGroup) {
+  const match = soleMatch(group)
+  return match ? navIndexForMatch(group, match) : -1
+}
+
+function openSoleMatch(group: SearchResultGroup) {
+  const match = soleMatch(group)
+  if (match) openResult(match)
+}
+
+function soleMatchSnippetParts(group: SearchResultGroup) {
+  const match = soleMatch(group)
+  return match ? snippetParts(match.snippet) : []
+}
+
 watch(visible, (open) => {
   if (open) {
     nextTick(() => inputRef.value?.focus())
@@ -330,17 +353,17 @@ onUnmounted(() => {
                   class="result-group"
                 >
                   <button
-                    v-if="group.matches.length === 1"
+                    v-if="soleMatch(group)"
                     type="button"
                     class="result-item"
-                    :class="{ 'is-active': isNavActive(navIndexForMatch(group, group.matches[0])) }"
-                    @click="openResult(group.matches[0])"
-                    @mouseenter="activeIndex = navIndexForMatch(group, group.matches[0])"
+                    :class="{ 'is-active': isNavActive(navIndexForSoleMatch(group)) }"
+                    @click="openSoleMatch(group)"
+                    @mouseenter="activeIndex = navIndexForSoleMatch(group)"
                   >
                     <span class="result-title">{{ group.title }}</span>
                     <span class="result-snippet">
                       <template
-                        v-for="(part, partIndex) in snippetParts(group.matches[0].snippet)"
+                        v-for="(part, partIndex) in soleMatchSnippetParts(group)"
                         :key="partIndex"
                       >
                         <mark v-if="part.highlight" class="snippet-mark">{{
