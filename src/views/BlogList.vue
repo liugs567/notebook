@@ -35,6 +35,7 @@ const total = ref(0)
 const page = ref(1)
 const size = ref(12)
 const loading = ref(false)
+const loadingMore = ref(false)
 const keyword = ref('')
 const publishFilter = ref('')
 const sourceFilter = ref('')
@@ -76,6 +77,8 @@ const importMode = computed<ImportMode>(() => {
   if (importKind.value === 'md') return 'md'
   return folderMode.value === 'package' ? 'folder-package' : 'folder-multi-md'
 })
+
+const hasMore = computed(() => items.value.length < total.value)
 
 const dropzoneHint = computed(() => {
   if (importKind.value === 'md') {
@@ -275,7 +278,7 @@ async function startImport() {
     if (data.successCount > 0) {
       message.success(res.data.message)
       await loadTags()
-      await loadList()
+      await loadList(true)
     } else if (data.failedCount > 0) {
       message.error(res.data.message)
     } else {
@@ -315,8 +318,17 @@ async function loadTags() {
   } catch { allTags.value = [] }
 }
 
-async function loadList() {
-  loading.value = true
+async function loadList(reset = true) {
+  if (reset) {
+    if (loading.value) return
+    page.value = 1
+    loading.value = true
+  } else {
+    if (loading.value || loadingMore.value || !hasMore.value) return
+    loadingMore.value = true
+    page.value += 1
+  }
+
   try {
     const res = await fetchList({
       page: page.value,
@@ -327,33 +339,47 @@ async function loadList() {
       tag: tagFilter.value || undefined,
     })
     const data = res.data.data
-    items.value = data.items
+    items.value = reset ? data.items : [...items.value, ...data.items]
     total.value = data.total
-  } catch { message.error('加载列表失败') }
-  finally { loading.value = false }
+  } catch {
+    if (!reset) page.value -= 1
+    message.error(reset ? '加载列表失败' : '加载更多失败')
+  } finally {
+    loading.value = false
+    loadingMore.value = false
+  }
 }
 
-function onSearch() { page.value = 1; loadList() }
+function loadMore() {
+  void loadList(false)
+}
+
+function onScroll() {
+  if (loading.value || loadingMore.value || !hasMore.value) return
+  const scrollBottom = window.innerHeight + window.scrollY
+  if (scrollBottom >= document.documentElement.scrollHeight - 240) {
+    loadMore()
+  }
+}
+
+function onSearch() { loadList(true) }
 
 function onReset() {
   keyword.value = ''
   publishFilter.value = ''
   sourceFilter.value = ''
   tagFilter.value = ''
-  page.value = 1
-  loadList()
+  loadList(true)
 }
 
 function setPublishFilter(value: string) {
   publishFilter.value = value
-  page.value = 1
-  loadList()
+  loadList(true)
 }
 
 function setSourceFilter(value: string) {
   sourceFilter.value = value
-  page.value = 1
-  loadList()
+  loadList(true)
 }
 
 function openImportModal() {
@@ -362,11 +388,10 @@ function openImportModal() {
 
 function selectTag(name: string) {
   tagFilter.value = tagFilter.value === name ? '' : name
-  page.value = 1
-  loadList()
+  loadList(true)
 }
 
-function clearTagFilter() { tagFilter.value = ''; page.value = 1; loadList() }
+function clearTagFilter() { tagFilter.value = ''; loadList(true) }
 
 function goCreate() { router.push('/blog/create') }
 function goView(id: string) { router.push(`/blog/view/${id}`) }
@@ -410,7 +435,7 @@ async function doDelete(id: string) {
   try {
     await deleteArticle(id)
     message.success('删除成功')
-    await loadList()
+    await loadList(true)
   } catch { message.error('删除失败') }
 }
 
@@ -432,11 +457,13 @@ function sourceLabel(source: string) { return source === 'temp' ? '草稿' : '�
 
 onMounted(async () => {
   await loadTags()
-  await loadList()
+  await loadList(true)
+  window.addEventListener('scroll', onScroll, { passive: true })
 })
 
 onUnmounted(() => {
   window.removeEventListener('wheel', onPreviewWheel)
+  window.removeEventListener('scroll', onScroll)
 })
 </script>
 
@@ -454,7 +481,7 @@ onUnmounted(() => {
             导入文章
           </a-button>
           <span class="total-badge">共 {{ total }} 篇</span>
-          <a-button shape="circle" :loading="loading" size="small" @click="loadList" title="刷新">
+          <a-button shape="circle" :loading="loading" size="small" @click="loadList(true)" title="刷新">
             <template #icon><ReloadOutlined /></template>
           </a-button>
         </div>
@@ -647,17 +674,12 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div v-if="total > size" class="pagination-bar">
-        <a-pagination
-          :current="page"
-          :page-size="size"
-          :total="total"
-          :show-size-changer="true"
-          :page-size-options="['12', '24', '48']"
-          :show-total="(t: number) => `共 ${t} 篇`"
-          @change="(p: number, ps: number) => { page = p; size = ps; loadList() }"
-          @showSizeChange="(_cur: number, ps: number) => { page = 1; size = ps; loadList() }"
-        />
+      <div v-if="items.length > 0" class="load-more-bar">
+        <template v-if="loadingMore">
+          <a-spin size="small" />
+          <span>加载更多...</span>
+        </template>
+        <span v-else-if="!hasMore" class="load-more-end">已加载全部 {{ total }} 篇</span>
       </div>
     </main>
 
@@ -1326,27 +1348,19 @@ onUnmounted(() => {
   color: #8a7d6b;
 }
 
-.pagination-bar :deep(.ant-pagination-item),
-.pagination-bar :deep(.ant-pagination-prev),
-.pagination-bar :deep(.ant-pagination-next) {
-  background: rgba(255, 255, 255, 0.52);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border-color: rgba(255, 255, 255, 0.62);
+.load-more-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 8px 0 16px;
+  font-size: 13px;
+  color: #8a7d6b;
 }
 
-.pagination-bar :deep(.ant-pagination-item a),
-.pagination-bar :deep(.ant-pagination-item-link) {
-  color: #7a6f5f;
-}
-
-.pagination-bar :deep(.ant-pagination-item-active) {
-  background: rgba(139, 105, 20, 0.65);
-  border-color: rgba(255, 255, 255, 0.3);
-}
-
-.pagination-bar :deep(.ant-pagination-item-active a) {
-  color: #fffdf8;
+.load-more-end {
+  color: #a89880;
 }
 
 .preview-modal-body {
@@ -1369,11 +1383,5 @@ onUnmounted(() => {
 
 .preview-scroll :deep(.md-editor-preview) {
   padding: 8px 4px 16px;
-}
-
-.pagination-bar {
-  display: flex;
-  justify-content: center;
-  padding-top: 8px;
 }
 </style>
