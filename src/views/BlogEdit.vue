@@ -330,6 +330,8 @@ onUnmounted(() => {
           :id="editorId"
           v-model="content"
           language="zh-CN"
+          :code-foldable="false"
+          :no-prettier="true"
           :preview="!isMobile"
           :toolbars="[
             'bold',
