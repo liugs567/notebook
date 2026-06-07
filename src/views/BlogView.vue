@@ -2,7 +2,6 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MdPreview, MdCatalog } from 'md-editor-v3'
-import 'md-editor-v3/lib/style.css'
 import { fetchDetail } from '../api/blog'
 import { formatDateTime } from '../utils/date'
 import {
@@ -224,6 +223,7 @@ onUnmounted(() => {
             :model-value="content"
             language="zh-CN"
             preview-theme="cyanosis"
+            :code-foldable="false"
           />
         </div>
       </div>
@@ -415,10 +415,15 @@ onUnmounted(() => {
   flex: 1;
   min-width: 0;
   width: 100%;
-  background: #fff;
-  border-radius: 8px;
-  border: 1px solid #eee;
+  background: rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
   padding: 16px 20px;
+  box-shadow:
+    0 2px 12px rgba(92, 73, 48, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
 .preview-main :deep(.md-editor-preview) {

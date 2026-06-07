@@ -3,6 +3,8 @@ import Antd from 'ant-design-vue'
 import { config } from 'md-editor-v3'
 import 'ant-design-vue/dist/reset.css'
 import './style.css'
+import 'md-editor-v3/lib/style.css'
+import './styles/md-editor-glass.css'
 import App from './App.vue'
 import router from './router'
 

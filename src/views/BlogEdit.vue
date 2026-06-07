@@ -2,7 +2,6 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MdEditor } from 'md-editor-v3'
-import 'md-editor-v3/lib/style.css'
 import {
   fetchDetail,
   saveArticle,
@@ -282,6 +281,13 @@ onUnmounted(() => {
       <button class="btn" @click="goBack">返回列表</button>
       <span class="page-label">{{ pageTitle }}</span>
       <div class="toolbar-actions">
+        <span
+          v-if="autoSaveEnabled && autoSaveHint"
+          class="autosave-hint"
+          :class="{ error: autoSaveStatus === 'error' }"
+        >
+          {{ autoSaveHint }}
+        </span>
         <a-checkbox v-model:checked="autoSaveEnabled" class="autosave-checkbox">
           自动保存
         </a-checkbox>
@@ -368,15 +374,6 @@ onUnmounted(() => {
         />
       </div>
 
-      <footer class="autosave-footer">
-        <span
-          v-if="autoSaveEnabled && autoSaveHint"
-          class="autosave-hint"
-          :class="{ error: autoSaveStatus === 'error' }"
-        >
-          {{ autoSaveHint }}
-        </span>
-      </footer>
     </template>
   </div>
 </template>
@@ -387,6 +384,7 @@ onUnmounted(() => {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
+  background: transparent;
 }
 
 .toolbar {
@@ -394,7 +392,10 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   padding: 8px 16px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
   flex-shrink: 0;
   flex-wrap: wrap;
 }
@@ -415,12 +416,27 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
+.autosave-hint {
+  font-size: 12px;
+  color: #7a6f5f;
+  white-space: nowrap;
+  max-width: min(280px, 36vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.autosave-hint.error {
+  color: #c62828;
+}
+
 .meta-row {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 8px 16px;
   flex-shrink: 0;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .title-input {
@@ -429,9 +445,16 @@ onUnmounted(() => {
   max-width: 32%;
   padding: 6px 10px;
   font-size: 14px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 8px;
   box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.52);
+  color: #3d3428;
+}
+
+.meta-row :deep(.ant-select-selector) {
+  background: rgba(255, 255, 255, 0.52) !important;
+  border-color: rgba(255, 255, 255, 0.55) !important;
 }
 
 .tags-select {
@@ -442,7 +465,7 @@ onUnmounted(() => {
 .editor-wrap {
   flex: 1;
   min-height: 0;
-  padding: 0 16px 8px;
+  padding: 0 16px 16px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -451,20 +474,6 @@ onUnmounted(() => {
 .editor-wrap :deep(.md-editor) {
   flex: 1;
   min-height: 0;
-}
-
-.autosave-footer {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 4px 16px 8px;
-  flex-shrink: 0;
-  font-size: 12px;
-  color: #666;
-}
-
-.autosave-hint.error {
-  color: #c62828;
 }
 
 .toast {

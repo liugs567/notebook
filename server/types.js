@@ -26,6 +26,7 @@
  * @property {number} createTime
  * @property {number} updateTime
  * @property {string[]} [tags]
+ * @property {string} [excerpt]
  */
 
 /**

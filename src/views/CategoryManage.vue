@@ -449,7 +449,6 @@ onMounted(async () => {
 
 <style scoped>
 .category-page {
-  max-width: 1400px;
   margin: 0 auto;
   padding: 28px 24px;
   background-color: #f8fafc;

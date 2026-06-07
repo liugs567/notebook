@@ -1,0 +1,90 @@
+/* md-editor-v3：牛皮纸背景上的半透明白玻璃 */
+
+.md-editor {
+  --md-color: #3d3428;
+  --md-hover-color: #2c2418;
+  --md-bk-color: rgba(255, 255, 255, 0.58);
+  --md-bk-color-outstand: rgba(255, 255, 255, 0.76);
+  --md-bk-hover-color: rgba(255, 255, 255, 0.68);
+  --md-border-color: rgba(255, 255, 255, 0.52);
+  --md-border-hover-color: rgba(139, 115, 85, 0.32);
+  --md-border-active-color: rgba(139, 105, 20, 0.42);
+  --md-scrollbar-bg-color: rgba(255, 255, 255, 0.35);
+  --md-scrollbar-thumb-color: rgba(92, 73, 48, 0.22);
+  --md-scrollbar-thumb-hover-color: rgba(92, 73, 48, 0.32);
+
+  background-color: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.68);
+  border-radius: 14px;
+  box-shadow:
+    0 4px 20px rgba(92, 73, 48, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.md-editor .md-editor-toolbar-wrapper,
+.md-editor .md-editor-footer {
+  background-color: rgba(255, 255, 255, 0.38);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.md-editor .md-editor-input-wrapper,
+.md-editor .md-editor-preview-wrapper {
+  background-color: rgba(255, 255, 255, 0.24);
+}
+
+.md-editor .md-editor-catalog-editor {
+  background-color: rgba(255, 255, 255, 0.42);
+  border-color: rgba(255, 255, 255, 0.48);
+}
+
+.md-editor .md-editor-preview {
+  --md-theme-color: #3d3428;
+  --md-theme-bg-color: transparent;
+  --md-theme-bg-color-inset: rgba(255, 255, 255, 0.42);
+  --md-theme-border-color: rgba(139, 115, 85, 0.18);
+  --md-theme-border-color-inset: rgba(139, 115, 85, 0.12);
+  --md-theme-color-hover: rgba(255, 255, 255, 0.5);
+  --md-theme-table-stripe-color: rgba(255, 255, 255, 0.28);
+}
+
+.md-editor div.cyanosis-theme {
+  --md-theme-base-color: #3d3428;
+  --md-theme-bg-color: transparent;
+  --md-theme-border-color-2: rgba(139, 115, 85, 0.16);
+  --md-theme-blockquote-bg-color: rgba(255, 255, 255, 0.38);
+  --md-theme-code-block-bg-color: rgba(248, 248, 248, 0.88);
+  background-color: transparent;
+}
+
+.md-editor-preview table tr{
+  background-color: #fff;
+}
+
+/* 纯预览模式：去掉编辑格外框，保留内容区玻璃 */
+.md-editor-previewOnly {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.md-editor-previewOnly .md-editor-toolbar-wrapper,
+.md-editor-previewOnly .md-editor-footer {
+  display: none;
+}
+
+.md-editor-previewOnly .md-editor-preview-wrapper {
+  background: rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+}
+
+.md-editor-modal-container {
+  --md-bk-color: rgba(255, 255, 255, 0.92);
+  --md-border-color: rgba(255, 255, 255, 0.65);
+}

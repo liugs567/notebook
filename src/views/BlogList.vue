@@ -1,28 +1,21 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { MdPreview } from 'md-editor-v3'
 import { message } from 'ant-design-vue'
-import type { TableColumnsType, TablePaginationConfig } from 'ant-design-vue'
-// 引入 Ant Design Icons
 import {
   PlusOutlined,
   SearchOutlined,
-  FileSearchOutlined,
   ReloadOutlined,
-  DeleteOutlined, 
-  EditOutlined, 
-  EyeOutlined,
-  ExclamationCircleFilled,
   InboxOutlined,
   FileMarkdownOutlined,
   FolderOutlined,
   CloseOutlined,
-  TagsOutlined,
-  DiffOutlined,
   ImportOutlined,
 } from '@ant-design/icons-vue'
 import {
   fetchList,
+  fetchDetail,
   deleteArticle,
   importArticles,
   fetchTags,
@@ -32,24 +25,30 @@ import {
   type ImportFile,
   getImportRelativePath,
 } from '../api/blog'
-import { formatDateTime } from '../utils/date'
-import { useContentSearch } from '../composables/useContentSearch'
+import { formatRelativeDate } from '../utils/date'
+import { downloadArticleExport } from '../utils/downloadArticle'
 
 const router = useRouter()
-const { openSearch } = useContentSearch()
 
 const items = ref<BlogIndexArticle[]>([])
 const total = ref(0)
 const page = ref(1)
-const size = ref(10)
+const size = ref(12)
 const loading = ref(false)
 const keyword = ref('')
-const statusFilter = ref('')
+const publishFilter = ref('')
+const sourceFilter = ref('')
 const tagFilter = ref('')
 const allTags = ref<string[]>([])
 const importVisible = ref(false)
+const previewVisible = ref(false)
+const previewLoading = ref(false)
+const previewTitle = ref('')
+const previewContent = ref('')
+const previewId = ref('')
+const previewScrollRef = ref<HTMLElement>()
+const downloadingId = ref('')
 
-// --- 批量导入 ---
 type ImportKind = 'md' | 'folder'
 type FolderMode = 'package' | 'multi-md'
 
@@ -143,23 +142,15 @@ function rebuildFolderQueue() {
   }]
 }
 
-function onImportKindChange() {
-  clearQueue()
-}
-
-function onFolderModeChange() {
-  if (importKind.value === 'folder') clearQueue()
-}
+function onImportKindChange() { clearQueue() }
+function onFolderModeChange() { if (importKind.value === 'folder') clearQueue() }
 
 function addMdFiles(files: File[]) {
   const mds = files.filter((f) => {
     const rel = fileRelativePath(f).replace(/\\/g, '/')
     return isMdFile(f.name) && !rel.includes('/')
   })
-  if (mds.length === 0) {
-    message.warning('请选择 .md 文件')
-    return
-  }
+  if (mds.length === 0) { message.warning('请选择 .md 文件'); return }
   pendingFiles.value = [...pendingFiles.value, ...mds]
   if (pendingFiles.value.length > 20) {
     pendingFiles.value = pendingFiles.value.slice(0, 20)
@@ -180,11 +171,7 @@ function setFolderFiles(files: File[]) {
       return tagImportPath(f, rel)
     })
     .filter((f): f is ImportFile => f !== null)
-
-  if (nested.length === 0) {
-    message.warning('请选择一个文件夹')
-    return
-  }
+  if (nested.length === 0) { message.warning('请选择一个文件夹'); return }
   pendingFiles.value = nested
   rebuildFolderQueue()
 }
@@ -198,9 +185,7 @@ function onFileInputChange(e: Event) {
 function onFolderInputChange(e: Event) {
   const input = e.target as HTMLInputElement
   const files = Array.from(input.files || []).map((f) => {
-    const rel = (
-      (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
-    ).replace(/\\/g, '/')
+    const rel = ((f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name).replace(/\\/g, '/')
     return tagImportPath(f, rel)
   })
   setFolderFiles(files)
@@ -208,39 +193,24 @@ function onFolderInputChange(e: Event) {
 }
 
 function pickFiles() {
-  if (importKind.value === 'md') {
-    fileInputRef.value?.click()
-  } else {
-    folderInputRef.value?.click()
-  }
+  if (importKind.value === 'md') fileInputRef.value?.click()
+  else folderInputRef.value?.click()
 }
 
-function onDragOver(e: DragEvent) {
-  e.preventDefault()
-  dragOver.value = true
-}
-
-function onDragLeave() {
-  dragOver.value = false
-}
+function onDragOver(e: DragEvent) { e.preventDefault(); dragOver.value = true }
+function onDragLeave() { dragOver.value = false }
 
 async function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
   const all: FileSystemEntry[] = []
   let batch: FileSystemEntry[]
   do {
-    batch = await new Promise((resolve, reject) => {
-      reader.readEntries(resolve, reject)
-    })
+    batch = await new Promise((resolve, reject) => { reader.readEntries(resolve, reject) })
     all.push(...batch)
   } while (batch.length > 0)
   return all
 }
 
-async function traverseEntry(
-  entry: FileSystemEntry,
-  files: File[],
-  basePath = '',
-) {
+async function traverseEntry(entry: FileSystemEntry, files: File[], basePath = '') {
   if (entry.isFile) {
     const file = await new Promise<File>((resolve, reject) => {
       ;(entry as FileSystemFileEntry).file(resolve, reject)
@@ -251,9 +221,7 @@ async function traverseEntry(
     const dirPath = basePath ? `${basePath}/${entry.name}` : entry.name
     const reader = (entry as FileSystemDirectoryEntry).createReader()
     const entries = await readAllEntries(reader)
-    for (const sub of entries) {
-      await traverseEntry(sub, files, dirPath)
-    }
+    for (const sub of entries) await traverseEntry(sub, files, dirPath)
   }
 }
 
@@ -261,45 +229,29 @@ async function onDrop(e: DragEvent) {
   e.preventDefault()
   dragOver.value = false
   if (importing.value) return
-
-  const items = e.dataTransfer?.items
+  const dtItems = e.dataTransfer?.items
   const collected: File[] = []
-
-  if (items?.length) {
+  if (dtItems?.length) {
     const tasks: Promise<void>[] = []
-    for (const item of items) {
+    for (const item of dtItems) {
       const entry = item.webkitGetAsEntry?.()
       if (entry) tasks.push(traverseEntry(entry, collected))
     }
     if (tasks.length > 0) await Promise.all(tasks)
   }
-
-  const files = collected.length > 0
-    ? collected
-    : Array.from(e.dataTransfer?.files || [])
-
-  if (importKind.value === 'md') {
-    addMdFiles(files)
-  } else {
-    setFolderFiles(files)
-  }
+  const files = collected.length > 0 ? collected : Array.from(e.dataTransfer?.files || [])
+  if (importKind.value === 'md') addMdFiles(files)
+  else setFolderFiles(files)
 }
 
 function removeQueueItem(key: string) {
   if (importKind.value === 'md') {
-    pendingFiles.value = pendingFiles.value.filter(
-      (f) => `file:${f.name}` !== key,
-    )
+    pendingFiles.value = pendingFiles.value.filter((f) => `file:${f.name}` !== key)
     rebuildMdQueue()
-  } else {
-    clearQueue()
-  }
+  } else clearQueue()
 }
 
-function clearQueue() {
-  pendingFiles.value = []
-  importQueue.value = []
-}
+function clearQueue() { pendingFiles.value = []; importQueue.value = [] }
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
@@ -308,26 +260,18 @@ function formatSize(bytes: number) {
 }
 
 async function startImport() {
-  if (importQueue.value.length === 0) {
-    message.warning('请先选择要导入的内容')
-    return
-  }
-
+  if (importQueue.value.length === 0) { message.warning('请先选择要导入的内容'); return }
   importing.value = true
   importProgress.value = 10
   try {
     importProgress.value = 40
     const res = await importArticles(pendingFiles.value, {
       mode: importMode.value,
-      folderName:
-        importKind.value === 'folder'
-          ? importQueue.value[0]?.name
-          : undefined,
+      folderName: importKind.value === 'folder' ? importQueue.value[0]?.name : undefined,
     })
     importProgress.value = 100
     const data = res.data.data
     importResults.value = data.results
-
     if (data.successCount > 0) {
       message.success(res.data.message)
       await loadTags()
@@ -337,15 +281,12 @@ async function startImport() {
     } else {
       message.warning(res.data.message)
     }
-
     resultVisible.value = true
     clearQueue()
   } catch (err: unknown) {
-    const msg =
-      err && typeof err === 'object' && 'response' in err
-        ? (err as { response?: { data?: { message?: string } } }).response?.data
-            ?.message
-        : undefined
+    const msg = err && typeof err === 'object' && 'response' in err
+      ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+      : undefined
     message.error(msg || '导入失败')
   } finally {
     importing.value = false
@@ -353,10 +294,7 @@ async function startImport() {
   }
 }
 
-function goEditFromResult(id: string) {
-  resultVisible.value = false
-  router.push(`/blog/edit/${id}`)
-}
+function goEditFromResult(id: string) { resultVisible.value = false; router.push(`/blog/edit/${id}`) }
 
 function resultStatusColor(status: string) {
   if (status === 'success') return 'success'
@@ -370,32 +308,11 @@ function resultStatusLabel(status: string) {
   return '失败'
 }
 
-const columns: TableColumnsType<BlogIndexArticle> = [
-  { title: '标题', dataIndex: 'title', key: 'title' },
-  { title: '分类', key: 'tags', width: 120 },
-  { title: '来源', key: 'source', width: 100 },
-  { title: '状态', key: 'status', width: 100 },
-  { title: '创建时间', key: 'createTime', width: 160 },
-  { title: '更新时间', key: 'updateTime', width: 160 },
-  { title: '操作', key: 'action', width: 200, fixed: 'right' },
-]
-
-const pagination = computed(() => ({
-  current: page.value,
-  pageSize: size.value,
-  total: total.value,
-  showSizeChanger: true,
-  pageSizeOptions: ['10', '20', '50'],
-  showTotal: (t: number) => `共 ${t} 篇`,
-}))
-
 async function loadTags() {
   try {
     const res = await fetchTags()
     allTags.value = res.data.data
-  } catch {
-    allTags.value = []
-  }
+  } catch { allTags.value = [] }
 }
 
 async function loadList() {
@@ -405,34 +322,42 @@ async function loadList() {
       page: page.value,
       size: size.value,
       keyword: keyword.value || undefined,
-      status: statusFilter.value || undefined,
+      status: publishFilter.value || undefined,
+      source: sourceFilter.value || undefined,
       tag: tagFilter.value || undefined,
     })
     const data = res.data.data
     items.value = data.items
     total.value = data.total
-  } catch {
-    message.error('加载列表失败')
-  } finally {
-    loading.value = false
-  }
+  } catch { message.error('加载列表失败') }
+  finally { loading.value = false }
 }
 
-function onSearch() {
-  page.value = 1
-  loadList()
-}
+function onSearch() { page.value = 1; loadList() }
 
 function onReset() {
   keyword.value = ''
-  statusFilter.value = ''
+  publishFilter.value = ''
+  sourceFilter.value = ''
   tagFilter.value = ''
   page.value = 1
   loadList()
 }
 
-function toggleImport() {
-  importVisible.value = !importVisible.value
+function setPublishFilter(value: string) {
+  publishFilter.value = value
+  page.value = 1
+  loadList()
+}
+
+function setSourceFilter(value: string) {
+  sourceFilter.value = value
+  page.value = 1
+  loadList()
+}
+
+function openImportModal() {
+  importVisible.value = true
 }
 
 function selectTag(name: string) {
@@ -441,121 +366,315 @@ function selectTag(name: string) {
   loadList()
 }
 
-function clearTagFilter() {
-  tagFilter.value = ''
-  page.value = 1
-  loadList()
+function clearTagFilter() { tagFilter.value = ''; page.value = 1; loadList() }
+
+function goCreate() { router.push('/blog/create') }
+function goView(id: string) { router.push(`/blog/view/${id}`) }
+function goEdit(id: string) { router.push(`/blog/edit/${id}`) }
+
+async function openPreview(id: string) {
+  previewId.value = `blog-list-preview-${id}`
+  previewTitle.value = ''
+  previewContent.value = ''
+  previewVisible.value = true
+  previewLoading.value = true
+  try {
+    const res = await fetchDetail(id)
+    const data = res.data.data
+    previewTitle.value = data.title
+    previewContent.value = data.content
+  } catch {
+    message.error('加载预览失败')
+    previewVisible.value = false
+  } finally {
+    previewLoading.value = false
+  }
 }
 
-function onTableChange(pag: TablePaginationConfig) {
-  page.value = pag.current ?? page.value
-  size.value = pag.pageSize ?? size.value
-  loadList()
+function onPreviewWheel(e: WheelEvent) {
+  if (!previewVisible.value || !previewScrollRef.value) return
+  if (previewScrollRef.value.contains(e.target as Node)) return
+  e.preventDefault()
+  previewScrollRef.value.scrollTop += e.deltaY
 }
 
-function goCreate() {
-  router.push('/blog/create')
-}
-
-function goCategories() {
-  router.push('/blog/categories')
-}
-
-function goDiff() {
-  router.push('/blog/diff')
-}
-
-function goView(id: string) {
-  router.push(`/blog/view/${id}`)
-}
-
-function goEdit(id: string) {
-  router.push(`/blog/edit/${id}`)
-}
+watch(previewVisible, (visible) => {
+  if (visible) {
+    window.addEventListener('wheel', onPreviewWheel, { passive: false })
+  } else {
+    window.removeEventListener('wheel', onPreviewWheel)
+  }
+})
 
 async function doDelete(id: string) {
   try {
     await deleteArticle(id)
     message.success('删除成功')
     await loadList()
+  } catch { message.error('删除失败') }
+}
+
+async function doDownload(item: BlogIndexArticle) {
+  if (downloadingId.value) return
+  downloadingId.value = item.id
+  try {
+    const res = await fetchDetail(item.id)
+    await downloadArticleExport(res.data.data)
+    message.success('下载成功')
   } catch {
-    message.error('删除失败')
+    message.error('下载失败')
+  } finally {
+    downloadingId.value = ''
   }
 }
 
-function sourceLabel(source: string) {
-  return source === 'temp' ? '临时草稿' : '已保存'
-}
-
-function sourceColor(source: string) {
-  return source === 'temp' ? 'warning' : 'success'
-}
-
-function statusLabel(item: BlogIndexArticle) {
-  return item.status === 'published' ? '已发布' : '未发布'
-}
-
-function statusBadgeStatus(item: BlogIndexArticle) {
-  return item.status === 'published' ? 'success' : 'default'
-}
+function sourceLabel(source: string) { return source === 'temp' ? '草稿' : '已保存' }
 
 onMounted(async () => {
   await loadTags()
   await loadList()
 })
+
+onUnmounted(() => {
+  window.removeEventListener('wheel', onPreviewWheel)
+})
 </script>
 
 <template>
-  <div class="blog-list-page">
-    <div class="page-header-wrapper">
-      <div class="page-header-left">
-        <h2 class="page-title">文章管理</h2>
-        <p class="page-subtitle">管理和发布您的博客文章内容</p>
+  <div class="page-root">
+    <main class="main-content">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">文章管理</h1>
+          <p class="page-subtitle">管理和发布您的博客内容</p>
+        </div>
+        <div class="header-right">
+          <a-button class="accent-btn" @click="openImportModal">
+            <template #icon><ImportOutlined /></template>
+            导入文章
+          </a-button>
+          <span class="total-badge">共 {{ total }} 篇</span>
+          <a-button shape="circle" :loading="loading" size="small" @click="loadList" title="刷新">
+            <template #icon><ReloadOutlined /></template>
+          </a-button>
+        </div>
       </div>
-      <a-space :size="12">
-        <a-button size="large" @click="openSearch">
-          <template #icon><FileSearchOutlined /></template>
-          内容检索
-        </a-button>
-        <a-button size="large" @click="goDiff">
-          <template #icon><DiffOutlined /></template>
-          文本对比
-        </a-button>
-        <a-button size="large" @click="goCategories">
-          <template #icon><TagsOutlined /></template>
-          分类管理
-        </a-button>
-        <a-button
-          type="primary"
-          size="large"
-          :ghost="!importVisible"
-          @click="toggleImport"
+
+      <div class="filter-card glass-surface">
+        <div class="filter-card-row">
+          <a-input
+            v-model:value="keyword"
+            class="filter-search-input"
+            placeholder="搜索文章标题..."
+            allow-clear
+            @pressEnter="onSearch"
+          >
+            <template #prefix><SearchOutlined style="color: #94a3b8" /></template>
+          </a-input>
+
+          <span class="filter-row-divider" />
+
+          <div class="filter-row-item">
+            <span class="filter-row-label">发布</span>
+            <div class="segment-group">
+              <button
+                type="button"
+                class="segment-btn"
+                :class="{ 'segment-btn--active': !publishFilter }"
+                @click="setPublishFilter('')"
+              >全部</button>
+              <button
+                type="button"
+                class="segment-btn"
+                :class="{ 'segment-btn--active': publishFilter === 'published' }"
+                @click="setPublishFilter('published')"
+              >已发布</button>
+              <button
+                type="button"
+                class="segment-btn"
+                :class="{ 'segment-btn--active': publishFilter === 'unpublished' }"
+                @click="setPublishFilter('unpublished')"
+              >未发布</button>
+            </div>
+          </div>
+
+          <span class="filter-row-divider" />
+
+          <div class="filter-row-item">
+            <span class="filter-row-label">保存</span>
+            <div class="segment-group">
+              <button
+                type="button"
+                class="segment-btn"
+                :class="{ 'segment-btn--active': !sourceFilter }"
+                @click="setSourceFilter('')"
+              >全部</button>
+              <button
+                type="button"
+                class="segment-btn"
+                :class="{ 'segment-btn--active': sourceFilter === 'saved' }"
+                @click="setSourceFilter('saved')"
+              >已保存</button>
+              <button
+                type="button"
+                class="segment-btn"
+                :class="{ 'segment-btn--active': sourceFilter === 'temp' }"
+                @click="setSourceFilter('temp')"
+              >未保存</button>
+            </div>
+          </div>
+
+          <a-button class="filter-reset-btn" @click="onReset">重置</a-button>
+        </div>
+      </div>
+
+      <div v-if="allTags.length > 0" class="tag-bar glass-surface">
+        <span class="tag-bar-label">分类</span>
+        <div class="tag-bar-items">
+          <button
+            type="button"
+            class="tag-chip"
+            :class="{ 'tag-chip--active': !tagFilter }"
+            @click="clearTagFilter"
+          >全部</button>
+          <button
+            v-for="tag in allTags"
+            :key="tag"
+            type="button"
+            class="tag-chip"
+            :class="{ 'tag-chip--active': tagFilter === tag }"
+            @click="selectTag(tag)"
+          >{{ tag }}</button>
+        </div>
+      </div>
+
+      <div v-if="loading" class="cards-loading">
+        <a-spin size="large" />
+      </div>
+
+      <div v-else-if="items.length === 0" class="cards-empty">
+        <a-empty description="还没有任何文章">
+          <a-button class="accent-btn" @click="goCreate">
+            <template #icon><PlusOutlined /></template>
+            撰写第一篇文章
+          </a-button>
+        </a-empty>
+      </div>
+
+      <div v-else class="cards-grid">
+        <div
+          v-for="item in items"
+          :key="item.id"
+          class="article-card"
         >
-          <template #icon><ImportOutlined /></template>
-          导入文章
-        </a-button>
-        <a-button type="primary" size="large" class="create-btn" @click="goCreate">
-          <template #icon><PlusOutlined /></template>
-          新建文章
-        </a-button>
-      </a-space>
-    </div>
+          <div class="card-title-wrap" @click="goView(item.id)">
+            <h3 class="card-title">
+              <span
+                class="card-status-tag"
+                :class="item.source === 'temp' ? 'card-status-tag--draft' : 'card-status-tag--saved'"
+              >{{ sourceLabel(item.source) }}</span>{{ item.title }}
+            </h3>
+          </div>
 
-    <div v-show="importVisible" class="import-section">
-      <div class="import-section-header">
-        <span class="import-section-title">导入 Markdown</span>
+          <p
+            class="card-excerpt"
+            @click="openPreview(item.id)"
+          >
+            {{ item.excerpt || '暂无摘要，点击预览全文' }}
+          </p>
+
+          <div class="card-bottom">
+            <span class="card-time">{{ formatRelativeDate(item.updateTime) }}</span>
+            <div class="card-actions">
+              <button
+                type="button"
+                class="card-icon-btn"
+                title="编辑"
+                @click.stop="goEdit(item.id)"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                  <path
+                    d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="card-icon-btn"
+                title="下载"
+                :disabled="downloadingId === item.id"
+                @click.stop="doDownload(item)"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                  <path
+                    d="M12 3v12M7 10l5 5 5-5M5 21h14"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+              <a-popconfirm
+                title="确定删除这篇文章吗？"
+                description="删除后无法恢复。"
+                ok-text="删除"
+                cancel-text="取消"
+                ok-type="danger"
+                @confirm="doDelete(item.id)"
+              >
+                <button type="button" class="card-icon-btn card-icon-btn--delete" title="删除" @click.stop>
+                  <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                    <path
+                      d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14zM10 11v6M14 11v6"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.75"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </button>
+              </a-popconfirm>
+            </div>
+          </div>
+        </div>
       </div>
 
+      <div v-if="total > size" class="pagination-bar">
+        <a-pagination
+          :current="page"
+          :page-size="size"
+          :total="total"
+          :show-size-changer="true"
+          :page-size-options="['12', '24', '48']"
+          :show-total="(t: number) => `共 ${t} 篇`"
+          @change="(p: number, ps: number) => { page = p; size = ps; loadList() }"
+          @showSizeChange="(_cur: number, ps: number) => { page = 1; size = ps; loadList() }"
+        />
+      </div>
+    </main>
+
+    <a-modal
+      v-model:open="importVisible"
+      title="导入 Markdown"
+      width="760px"
+      centered
+      :footer="null"
+      :mask-closable="!importing"
+      :closable="!importing"
+    >
       <div class="import-mode-bar">
-        <a-radio-group
-          v-model:value="importKind"
-          :disabled="importing"
-          @change="onImportKindChange"
-        >
+        <a-radio-group v-model:value="importKind" :disabled="importing" @change="onImportKindChange">
           <a-radio-button value="md">上传 Markdown</a-radio-button>
           <a-radio-button value="folder">上传文件夹</a-radio-button>
         </a-radio-group>
-
         <a-radio-group
           v-if="importKind === 'folder'"
           v-model:value="folderMode"
@@ -575,29 +694,10 @@ onMounted(async () => {
         @dragleave="onDragLeave"
         @drop="onDrop"
       >
-        <input
-          ref="fileInputRef"
-          type="file"
-          accept=".md,text/markdown"
-          multiple
-          hidden
-          @change="onFileInputChange"
-        />
-        <input
-          ref="folderInputRef"
-          type="file"
-          multiple
-          hidden
-          webkitdirectory
-          @change="onFolderInputChange"
-        />
-
-        <p class="import-dropzone-icon">
-          <InboxOutlined />
-        </p>
-        <p class="import-dropzone-text">
-          {{ importKind === 'md' ? '拖拽或选择 .md 文件' : '拖拽或选择一个文件夹' }}
-        </p>
+        <input ref="fileInputRef" type="file" accept=".md,text/markdown" multiple hidden @change="onFileInputChange" />
+        <input ref="folderInputRef" type="file" multiple hidden webkitdirectory @change="onFolderInputChange" />
+        <p class="import-dropzone-icon"><InboxOutlined /></p>
+        <p class="import-dropzone-text">{{ importKind === 'md' ? '拖拽或选择 .md 文件' : '拖拽或选择一个文件夹' }}</p>
         <p class="import-dropzone-hint">{{ dropzoneHint }}</p>
         <a-button size="small" :disabled="importing" @click="pickFiles">
           <template #icon>
@@ -613,13 +713,7 @@ onMounted(async () => {
           <span>待导入队列（{{ importQueue.length }} 项）</span>
           <a-space>
             <a-button size="small" :disabled="importing" @click="clearQueue">清空</a-button>
-            <a-button
-              type="primary"
-              size="small"
-              :loading="importing"
-              :disabled="importQueue.length === 0"
-              @click="startImport"
-            >
+            <a-button type="primary" size="small" :loading="importing" @click="startImport">
               <template #icon><ImportOutlined /></template>
               开始导入
             </a-button>
@@ -635,21 +729,12 @@ onMounted(async () => {
                 </template>
                 <template #title>
                   <span>{{ item.name }}</span>
-                  <a-tag :bordered="false" style="margin-left: 8px">
-                    {{ item.type === 'folder' ? '文件夹' : '文件' }}
-                  </a-tag>
+                  <a-tag :bordered="false" style="margin-left: 8px">{{ item.type === 'folder' ? '文件夹' : '文件' }}</a-tag>
                 </template>
-                <template #description>
-                  {{ item.fileCount }} 个文件 · {{ formatSize(item.size) }}
-                </template>
+                <template #description>{{ item.fileCount }} 个文件 · {{ formatSize(item.size) }}</template>
               </a-list-item-meta>
               <template #actions>
-                <a-button
-                  type="text"
-                  size="small"
-                  :disabled="importing"
-                  @click="removeQueueItem(item.key)"
-                >
+                <a-button type="text" size="small" :disabled="importing" @click="removeQueueItem(item.key)">
                   <CloseOutlined />
                 </a-button>
               </template>
@@ -658,168 +743,46 @@ onMounted(async () => {
         </a-list>
       </div>
 
-      <a-progress
-        v-if="importing"
-        :percent="importProgress"
-        status="active"
-        :show-info="false"
-        style="margin-top: 12px"
-      />
-    </div>
-
-    <a-card :bordered="false" class="list-card">
-      <div class="filter-section">
-        <a-space wrap :size="16">
-          <a-input
-            v-model:value="keyword"
-            placeholder="输入文章标题搜索..."
-            allow-clear
-            style="width: 280px"
-            @pressEnter="onSearch"
-          >
-            <template #prefix><SearchOutlined style="color: rgba(0,0,0,0.25)" /></template>
-          </a-input>
-          
-          <a-select
-            v-model:value="statusFilter"
-            placeholder="筛选类型"
-            allow-clear
-            style="width: 180px"
-            @change="onSearch"
-          >
-            <a-select-option value="">全部</a-select-option>
-            <a-select-option value="published">已发布</a-select-option>
-            <a-select-option value="temp">临时草稿</a-select-option>
-          </a-select>
-
-          <a-button type="primary" ghost @click="onSearch">筛选</a-button>
-          <a-button @click="onReset">重置</a-button>
-        </a-space>
-
-        <a-button :loading="loading" shape="circle" @click="loadList" title="刷新数据">
-          <template #icon><ReloadOutlined /></template>
-        </a-button>
-      </div>
-
-      <div v-if="allTags.length > 0" class="category-section">
-        <span class="category-section-label">分类：</span>
-        <a-space wrap :size="8">
-          <a-checkable-tag
-            :checked="!tagFilter"
-            @change="clearTagFilter"
-          >
-            全部
-          </a-checkable-tag>
-          <a-checkable-tag
-            v-for="tag in allTags"
-            :key="tag"
-            :checked="tagFilter === tag"
-            @change="() => selectTag(tag)"
-          >
-            {{ tag }}
-          </a-checkable-tag>
-        </a-space>
-      </div>
-
-      <a-table
-        class="article-table"
-        :columns="columns"
-        :data-source="items"
-        :loading="loading"
-        :pagination="pagination"
-        row-key="id"
-        :scroll="{ x: 900 }"
-        @change="onTableChange"
-      >
-        <template #emptyText>
-          <a-empty description="这里太空了，还没有任何文章">
-            <a-button type="primary" @click="goCreate">
-              <template #icon><PlusOutlined /></template>
-              撰写第一篇文章
-            </a-button>
-          </a-empty>
-        </template>
-
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'title'">
-            <a class="article-title-link" @click="goView(record.id)">
-              {{ record.title }}
-            </a>
-          </template>
-
-          <template v-else-if="column.key === 'tags'">
-            <a-space v-if="record.tags?.length" wrap :size="4">
-              <a-tag v-for="tag in record.tags" :key="tag" color="blue" :bordered="false">
-                {{ tag }}
-              </a-tag>
-            </a-space>
-            <span v-else class="empty-text">—</span>
-          </template>
-
-          <template v-else-if="column.key === 'source'">
-            <a-tag :color="sourceColor(record.source)" :bordered="false">
-              {{ sourceLabel(record.source) }}
-            </a-tag>
-          </template>
-
-          <template v-else-if="column.key === 'status'">
-            <a-badge :status="statusBadgeStatus(record)" :text="statusLabel(record)" />
-          </template>
-
-          <template v-else-if="column.key === 'createTime'">
-            <span class="time-text">{{ formatDateTime(record.createTime) }}</span>
-          </template>
-
-          <template v-else-if="column.key === 'updateTime'">
-            <span class="time-text">{{ formatDateTime(record.updateTime) }}</span>
-          </template>
-
-          <template v-else-if="column.key === 'action'">
-            <div class="action-buttons">
-              <a @click="goView(record.id)" class="action-link">
-                <EyeOutlined /> 查看
-              </a>
-              <a-divider type="vertical" />
-              <a @click="goEdit(record.id)" class="action-link edit-link">
-                <EditOutlined /> 编辑
-              </a>
-              <a-divider type="vertical" />
-              <a-popconfirm
-                title="确定要删除这篇文章吗？"
-                description="删除后数据将无法恢复。"
-                ok-text="确定"
-                cancel-text="取消"
-                ok-type="danger"
-                @confirm="doDelete(record.id)"
-              >
-                <template #icon>
-                  <ExclamationCircleFilled style="color: #ff4d4f" />
-                </template>
-                <a class="action-link delete-link">
-                  <DeleteOutlined /> 删除
-                </a>
-              </a-popconfirm>
-            </div>
-          </template>
-        </template>
-      </a-table>
-    </a-card>
+      <a-progress v-if="importing" :percent="importProgress" status="active" :show-info="false" style="margin-top: 12px" />
+    </a-modal>
 
     <a-modal
-      v-model:open="resultVisible"
-      title="导入结果"
+      v-model:open="previewVisible"
+      :title="previewTitle || '文章预览'"
+      width="860px"
+      centered
       :footer="null"
-      width="560px"
+      destroy-on-close
+      class="preview-modal"
     >
+      <div class="preview-modal-body">
+        <div v-if="previewLoading" class="preview-loading">
+          <a-spin size="large" />
+        </div>
+        <div
+          v-else
+          ref="previewScrollRef"
+          class="preview-scroll"
+          tabindex="-1"
+        >
+          <MdPreview
+            :id="previewId"
+            :model-value="previewContent"
+            preview-theme="cyanosis"
+            :code-foldable="false"
+          />
+        </div>
+      </div>
+    </a-modal>
+
+    <a-modal v-model:open="resultVisible" title="导入结果" :footer="null" width="680px" centered>
       <a-list size="small" :data-source="importResults">
         <template #renderItem="{ item }">
           <a-list-item>
             <a-list-item-meta>
               <template #title>
                 <a-space>
-                  <a-tag :color="resultStatusColor(item.status)" :bordered="false">
-                    {{ resultStatusLabel(item.status) }}
-                  </a-tag>
+                  <a-tag :color="resultStatusColor(item.status)" :bordered="false">{{ resultStatusLabel(item.status) }}</a-tag>
                   <span>{{ item.title || item.name }}</span>
                 </a-space>
               </template>
@@ -844,145 +807,93 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.blog-list-page {
-  max-width: 1250px;
-  margin: 0 auto;
-  padding: 28px 24px;
-  background-color: #f8fafc; /* 给予页面微弱的底色衬托卡片 */
+.page-root {
   min-height: 100vh;
+  background: transparent;
+  color: #3d3428;
+  font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Georgia', serif;
 }
 
-/* 顶部标题区样式增强 */
-.page-header-wrapper {
+.glass-surface {
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow:
+    0 4px 24px rgba(92, 73, 48, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.main-content {
+  max-width: 1280px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-sizing: border-box;
+}
+
+.page-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
+  align-items: flex-end;
 }
 
 .page-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: #1e293b;
-  margin: 0 0 4px 0;
+  font-size: 26px;
+  font-weight: 700;
+  color: #2c2418;
+  margin: 0 0 4px;
+  letter-spacing: -0.3px;
 }
 
 .page-subtitle {
   font-size: 14px;
-  color: #64748b;
+  color: #7a6f5f;
   margin: 0;
 }
 
-.create-btn {
-  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.25);
-  border-radius: 6px;
-}
-
-/* 卡片阴影与圆角微调 */
-.list-card {
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.03);
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.list-card :deep(.ant-card-body) {
-  padding: 24px;
-}
-
-/* 过滤区域弹性布局 */
-.filter-section {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-  padding-bottom: 4px;
-}
-
-.category-section {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.category-section-label {
-  flex-shrink: 0;
-  font-size: 13px;
-  color: #64748b;
-  line-height: 22px;
-}
-
-.empty-text {
-  color: #cbd5e1;
-}
-
-/* 表格内元素美化 */
-.article-title-link {
-  font-weight: 500;
-  color: #1e293b;
-  transition: color 0.2s;
-  word-break: break-word;
-  white-space: normal;
-  line-height: 1.5;
-}
-
-.article-title-link:hover {
-  color: #1677ff;
-}
-
-.time-text {
-  color: #64748b;
-  font-size: 13px;
-}
-
-/* 操作按钮美化 */
-.action-buttons {
+.header-right {
   display: flex;
   align-items: center;
+  gap: 10px;
 }
 
-.action-link {
+:deep(.accent-btn) {
+  background: rgba(139, 105, 20, 0.78);
+  border: 1px solid rgba(122, 92, 16, 0.55);
+  color: #fffdf8;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow:
+    0 2px 10px rgba(139, 105, 20, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+:deep(.accent-btn:hover),
+:deep(.accent-btn:focus) {
+  background: rgba(139, 105, 20, 0.88) !important;
+  border-color: rgba(122, 92, 16, 0.65) !important;
+  color: #fffdf8 !important;
+}
+
+:deep(.accent-btn:active) {
+  background: rgba(122, 92, 16, 0.92) !important;
+  border-color: rgba(107, 80, 14, 0.75) !important;
+}
+
+.total-badge {
   font-size: 13px;
-  color: #475569;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: color 0.2s;
-}
-
-.action-link:hover {
-  color: #1677ff;
-}
-
-.edit-link:hover {
-  color: #722ed1; /* 编辑给与个性的紫色 */
-}
-
-.delete-link {
-  color: #ff4d4f;
-}
-
-.delete-link:hover {
-  color: #ff7875 !important;
-}
-
-.article-table :deep(.ant-table-thead > tr > th) {
-  background-color: #f8fafc; /* 表头浅色加深 */
-  font-weight: 600;
-  color: #334155;
-}
-
-/* 导入区域（独立于列表卡片） */
-.import-section {
-  margin-bottom: 24px;
-  padding: 24px;
-  background: #ffffff;
-  border-radius: 8px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.03);
-}
-
-.import-section-header {
-  margin-bottom: 12px;
+  color: #6b5f4f;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  padding: 3px 10px;
+  border-radius: 20px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .import-mode-bar {
@@ -990,31 +901,21 @@ onMounted(async () => {
   flex-wrap: wrap;
   align-items: center;
   gap: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .import-folder-mode {
   padding-left: 4px;
 }
 
-.import-section-title {
-  font-weight: 600;
-  color: #334155;
-  font-size: 15px;
-}
-
-.import-section-hint {
-  font-size: 13px;
-  color: #94a3b8;
-}
-
 .import-dropzone {
-  border: 1px dashed #d9d9d9;
-  border-radius: 8px;
+  border: 1.5px dashed #d9d9d9;
+  border-radius: 12px;
   background: #fafafa;
-  padding: 24px 16px;
+  padding: 40px 24px;
   text-align: center;
   transition: border-color 0.2s, background 0.2s;
+  margin-bottom: 16px;
 }
 
 .import-dropzone--active {
@@ -1028,20 +929,20 @@ onMounted(async () => {
 }
 
 .import-dropzone-icon {
-  font-size: 48px;
+  font-size: 56px;
   color: #1677ff;
-  margin: 0 0 8px;
+  margin: 0 0 12px;
 }
 
 .import-dropzone-text {
-  margin: 0 0 4px;
-  font-size: 15px;
+  margin: 0 0 6px;
+  font-size: 16px;
   color: #334155;
 }
 
 .import-dropzone-hint {
-  margin: 0 0 16px;
-  font-size: 13px;
+  margin: 0 0 20px;
+  font-size: 14px;
   color: #94a3b8;
 }
 
@@ -1062,5 +963,417 @@ onMounted(async () => {
   margin-top: 4px;
   color: #faad14;
   font-size: 12px;
+}
+
+.filter-card {
+  border-radius: 18px;
+  padding: 14px 18px;
+}
+
+.filter-card :deep(.ant-input),
+.filter-card :deep(.ant-input-affix-wrapper) {
+  background: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-color: rgba(255, 255, 255, 0.65);
+  color: #3d3428;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.filter-card :deep(.ant-input::placeholder) {
+  color: #a89880;
+}
+
+.filter-card :deep(.ant-input-affix-wrapper:hover),
+.filter-card :deep(.ant-input-affix-wrapper-focused) {
+  border-color: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.filter-card :deep(.ant-input-affix-wrapper-focused) {
+  box-shadow: 0 0 0 2px rgba(139, 105, 20, 0.15);
+}
+
+.filter-reset-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-color: rgba(255, 255, 255, 0.65);
+  color: #6b5f4f;
+}
+
+.filter-card-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+
+.filter-search-input {
+  flex: 1;
+  min-width: 180px;
+}
+
+.filter-row-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.filter-row-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #8a7d6b;
+  flex-shrink: 0;
+}
+
+.filter-row-divider {
+  width: 1px;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+}
+
+.segment-group {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.segment-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 14px;
+  font-size: 13px;
+  color: #7a6f5f;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, background 0.15s, box-shadow 0.15s;
+  line-height: 1.5;
+}
+
+.segment-btn:hover:not(.segment-btn--active) {
+  color: #3d3428;
+}
+
+.segment-btn--active {
+  background: rgba(255, 255, 255, 0.78);
+  color: #8b6914;
+  font-weight: 500;
+  box-shadow:
+    0 1px 4px rgba(92, 73, 48, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.tag-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-radius: 16px;
+  padding: 12px 16px;
+}
+
+.tag-bar-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #8a7d6b;
+  flex-shrink: 0;
+  line-height: 30px;
+}
+
+.tag-chip {
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 4px 14px;
+  font-size: 13px;
+  color: #7a6f5f;
+  border-radius: 20px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+  line-height: 1.5;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.tag-chip:hover:not(.tag-chip--active) {
+  color: #3d3428;
+  background: rgba(255, 255, 255, 0.68);
+  border-color: rgba(255, 255, 255, 0.75);
+}
+
+.tag-chip--active {
+  background: rgba(139, 105, 20, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #fffdf8;
+  font-weight: 500;
+  box-shadow: 0 2px 10px rgba(139, 105, 20, 0.25);
+}
+
+.cards-empty :deep(.ant-empty-description) {
+  color: #8a7d6b;
+}
+
+.cards-loading,
+.cards-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+}
+
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 18px;
+}
+
+.tag-bar-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+}
+
+.article-card {
+  position: relative;
+  background: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 14px;
+  box-shadow:
+    0 4px 20px rgba(92, 73, 48, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  overflow: hidden;
+  padding: 16px;
+  padding-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+}
+
+.article-card:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(255, 255, 255, 0.85);
+  box-shadow:
+    0 8px 28px rgba(92, 73, 48, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.card-title-wrap {
+  cursor: pointer;
+}
+
+.card-title-wrap:hover .card-title {
+  color: #8b6914;
+}
+
+.card-status-tag {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 6px;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  white-space: nowrap;
+  transform: translateY(-1px);
+}
+
+.card-status-tag--saved {
+  color: #1e4d8c;
+  background: rgba(191, 219, 254, 0.55);
+  border: 1px solid rgba(147, 197, 253, 0.45);
+}
+
+.card-status-tag--draft {
+  color: #9a3412;
+  background: rgba(254, 215, 170, 0.55);
+  border: 1px solid rgba(253, 186, 116, 0.45);
+}
+
+.card-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #2c2418;
+  margin: 0;
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  letter-spacing: 0.01em;
+  transition: color 0.15s;
+}
+
+.card-excerpt {
+  font-size: 13px;
+  color: #6b5f4f;
+  line-height: 1.65;
+  margin: 0;
+  flex: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.card-excerpt:hover {
+  color: #8b6914;
+}
+
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.card-title-wrap,
+.card-excerpt,
+.card-bottom {
+  position: relative;
+  z-index: 1;
+}
+
+.card-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.42);
+  color: #b8a990;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.card-icon-btn:hover:not(:disabled) {
+  color: #6b5f4f;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.card-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.card-icon-btn--delete:hover {
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.7);
+}
+
+.card-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.55);
+}
+
+.card-time {
+  font-size: 12px;
+  color: #a89880;
+  white-space: nowrap;
+}
+
+:deep(.preview-modal .ant-modal-content) {
+  background: rgba(255, 255, 255, 0.68);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  box-shadow: 0 16px 48px rgba(92, 73, 48, 0.1);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+:deep(.preview-modal .ant-modal-header) {
+  background: rgba(255, 255, 255, 0.45);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.55);
+}
+
+:deep(.preview-modal .ant-modal-title) {
+  color: #2c2418;
+  font-weight: 600;
+}
+
+:deep(.preview-modal .ant-modal-close-x) {
+  color: #8a7d6b;
+}
+
+.pagination-bar :deep(.ant-pagination-item),
+.pagination-bar :deep(.ant-pagination-prev),
+.pagination-bar :deep(.ant-pagination-next) {
+  background: rgba(255, 255, 255, 0.52);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-color: rgba(255, 255, 255, 0.62);
+}
+
+.pagination-bar :deep(.ant-pagination-item a),
+.pagination-bar :deep(.ant-pagination-item-link) {
+  color: #7a6f5f;
+}
+
+.pagination-bar :deep(.ant-pagination-item-active) {
+  background: rgba(139, 105, 20, 0.65);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.pagination-bar :deep(.ant-pagination-item-active a) {
+  color: #fffdf8;
+}
+
+.preview-modal-body {
+  min-height: 320px;
+}
+
+.preview-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+}
+
+.preview-scroll {
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+  padding-right: 4px;
+  outline: none;
+}
+
+.preview-scroll :deep(.md-editor-preview) {
+  padding: 8px 4px 16px;
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: center;
+  padding-top: 8px;
 }
 </style>

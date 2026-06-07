@@ -15,6 +15,7 @@ export interface BlogIndexArticle {
   createTime: number
   updateTime: number
   tags?: string[]
+  excerpt?: string
 }
 
 export interface ArticleDetail extends BlogIndexArticle {

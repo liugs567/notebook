@@ -140,8 +140,8 @@ export async function listArticles(query = {}) {
 
   if (status === 'published') {
     list = list.filter((a) => a.status === 'published')
-  } else if (status === 'temp') {
-    list = list.filter((a) => a.source === 'temp')
+  } else if (status === 'unpublished') {
+    list = list.filter((a) => a.status !== 'published')
   }
 
   if (source === 'saved') {
@@ -158,7 +158,13 @@ export async function listArticles(query = {}) {
 
   const total = list.length
   const start = (page - 1) * size
-  const items = list.slice(start, start + size)
+  const pageItems = list.slice(start, start + size)
+  const items = await Promise.all(
+    pageItems.map(async (entry) => ({
+      ...entry,
+      excerpt: await readArticleExcerpt(entry),
+    })),
+  )
 
   return {
     items,
@@ -169,11 +175,33 @@ export async function listArticles(query = {}) {
   }
 }
 
+const LIST_EXCERPT_MAX = 150
+
 const SEARCH_SNIPPET_BEFORE = 60
 const SEARCH_SNIPPET_AFTER = 60
 const SEARCH_MIN_KEYWORD_LEN = 2
 const SEARCH_DEFAULT_LIMIT = 50
 const SEARCH_MAX_LIMIT = 100
+
+/**
+ * @param {import('../types.js').BlogIndexArticle} entry
+ */
+async function readArticleExcerpt(entry) {
+  try {
+    const root = await blogRoot()
+    const content = await fs.readFile(
+      path.join(root, entry.path, 'content.md'),
+      'utf8',
+    )
+    const plain = stripMarkdownForSnippet(content)
+    if (!plain) return ''
+    return plain.length > LIST_EXCERPT_MAX
+      ? `${plain.slice(0, LIST_EXCERPT_MAX)}…`
+      : plain
+  } catch {
+    return ''
+  }
+}
 
 /**
  * @param {string} text
